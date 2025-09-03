@@ -1,0 +1,4 @@
+# Cabal build artefacts
+dist/
+dist-*/
+dist-newstyle/
