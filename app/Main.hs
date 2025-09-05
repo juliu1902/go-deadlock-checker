@@ -70,7 +70,7 @@ main = do
         case checkChannelBehavior cb of
          Left err -> putStrLn $ "Ungültig: " ++ err ++ "\n"
          Right () -> putStrLn $ "Gültig\n"
-    let input6 = "x = <- c1\ny = <- c2\nif x > 0 then c1 <- 2*x\nc2 <- 2*x else\nif x < 0 then c1 <- 3*x\nc2 <- 3*x else skip\nclose c1\nclose c2"
+    let input6 = "x = <- c1\ny = <- c2\nif x > 0 then {c1 <- 2*x\nc2 <- 2*x} else\nif x < 0 then {c1 <- 3*x\nc2 <- 3*x} else skip\nclose c1\nclose c2"
     case runParser parseStatement "" input6 of
       Left err -> putStrLn $ errorBundlePretty err
       Right s  -> do

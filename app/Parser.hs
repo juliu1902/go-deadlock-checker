@@ -141,7 +141,7 @@ parseIf = do
     spaceConsumer
     _ <- string "then"
     spaceConsumer
-    a <- parseStatement
+    a <- parseSequence <|> parseSingleStatement
     spaceConsumer
     _ <- string "else"
     spaceConsumer
