@@ -68,6 +68,7 @@ executable go-deadlock-checker
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0, megaparsec, containers, parser-combinators
+    other-modules: Datastructure, Parser
 
     -- Directories containing source files.
     hs-source-dirs:   app

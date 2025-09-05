@@ -3,7 +3,6 @@ import Datastructure
 import Text.Megaparsec.Char as C
 import Text.Megaparsec.Char.Lexer as Lex
 import Data.Void
-import Datastructure
 import Text.Megaparsec
 
 type Parser = Parsec Void String

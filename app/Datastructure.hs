@@ -3,7 +3,6 @@ module Datastructure where
 data Statement = Skip | Send Channel | Receive Channel | End Channel | Sequence Statement Statement | If Expr Statement Statement | For Expr Statement
 type Expr = String
 type Channel = String
-newtype SingleChannelBehavior = SingleChannelBehavior (Channel, Statement)
 newtype ChannelBehavior = ChannelBehavior [(Channel, Statement)]
 
 instance Show Statement where
@@ -40,7 +39,7 @@ assignChannelsToStmts stmt =
     in foldl insertStmt (ChannelBehavior[]) tuples -- merging multiple (Channel, Statement)-pairs with the same channelname to one single (Channel, Statement)
     where
         -- helper function takes a Statement and the channel of the last detected action (mainly necessary for skip)
-        -- and creates its many ChannelBehavior pairs (!! without grouping the same channels into one single (Channel, Statement) pair!!)
+        -- and creates its many (Channel,Statement) pairs (!! without grouping the same channels into one single (Channel, Statement) pair at first!!)
         helper :: Statement -> Maybe Channel -> [(Channel, Statement)]
         helper s currentChannel = case s of
             Send ch      -> [(ch, s)]
