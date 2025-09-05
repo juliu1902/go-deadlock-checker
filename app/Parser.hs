@@ -26,13 +26,13 @@ identifier = do
 
 -- Hilfsparser der jede mögliche Zahl als String parst
 numberParser :: Parser String
-numberParser = try parseInt <|> parseFloat where
+numberParser = try parseFloat <|> parseInt where
     parseInt = fmap show (Lex.signed spaceConsumer Lex.decimal)
     parseFloat = fmap show (Lex.signed spaceConsumer Lex.float)
 
--- Hilfsparser atomare Ausdrücke (Bool, Identifier, Recv, Literale)
+-- Hilfsparser atomare Ausdrücke (Bool, Identifier, Literale)
 atom :: Parser String
-atom = try boolParser <|> try recvParser <|> try numberParser <|> identifier
+atom = try boolParser <|> try numberParser <|> identifier
 
 boolParser :: Parser String
 boolParser = do
@@ -40,13 +40,6 @@ boolParser = do
     b <- string "false" <|> string "true"
     spaceConsumer
     return b
-recvParser :: Parser String
-recvParser = do
-    spaceConsumer
-    _ <- string "<-"
-    spaceConsumer
-    c <- identifier
-    return ("<-" ++ c)
 
 -- Hilfsparser für Operatoren
 operator :: Parser (String -> String -> String)
@@ -105,7 +98,7 @@ parseSend = do
     spaceConsumer
     _ <- string "<-"
     spaceConsumer
-    _ <- try expressionParser <|> try identifier <|> try numberParser
+    _ <- try expressionParser <|> try identifier <|> numberParser
     return (Send c)
 
 -- sowohl x = <- c als auch x := <- c erlaubt, 

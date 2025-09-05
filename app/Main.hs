@@ -20,7 +20,7 @@ checkClose st = case st of
 
 main :: IO ()
 main = do
-    let input1 = "c <- 42\nclose c"
+    let input1 = "c <- -4.2\nclose c"
     case runParser parseStatement "" input1 of
       Left err -> putStrLn $ errorBundlePretty err
       Right s  -> do
@@ -30,7 +30,7 @@ main = do
         case checkChannelBehavior cb of
          Left err -> putStrLn $ "Ungültig: " ++ err ++ "\n"
          Right () -> putStrLn $ "Gültig\n"
-    let input2 = "x = <- c \nif x > 0 then c <- 2*x else skip \nclose c"
+    let input2 = "x = <- c \nif 2 > 0 then c <- 2*x else skip \nclose c"
     case runParser parseStatement "" input2 of
       Left err -> putStrLn $ errorBundlePretty err
       Right s  -> do
