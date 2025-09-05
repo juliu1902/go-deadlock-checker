@@ -145,9 +145,8 @@ parseIf = do
     spaceConsumer
     _ <- string "else"
     spaceConsumer
-    b <- parseStatement
+    b <- parseSequence <|> parseSingleStatement
     return (If cond a b)
-
 
 parseFor :: Parser Statement
 parseFor = do
@@ -155,13 +154,19 @@ parseFor = do
     _ <- string "for"
     spaceConsumer
     cond <- expressionParser
+    s <- parseSequence
+    return (For cond s)
+
+-- used for {}-codeblocks inside for/ifs
+parseSequence :: Parser Statement
+parseSequence = do
     spaceConsumer
     _ <- char '{'
     spaceConsumer
     s <- parseStatement
     spaceConsumer
-    _ <-char '}'
-    return (For cond s)
+    _ <- char '}'
+    return s
 
 -- Sequence Parser hier indirekt verbaut
 parseStatement :: Parser Statement
