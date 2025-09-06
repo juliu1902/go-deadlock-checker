@@ -1,7 +1,10 @@
 {-# LANGUAGE GADTs #-}
 module Datastructure where
 import Data.List
-data Statement = Skip | Send Channel | Receive Channel | End Channel | Sequence Statement Statement | If Expr Statement Statement | For Expr Statement | Assign VarName AbstractVal
+
+--  s ::= skip | ! | ? | end | s;s | s if e else s | for e s
+--  s ::= new c. s | skip | c! | c? | c.end | s;s | s if e else s | for e s | go s s
+data Statement = New Channel Statement | Skip | Send Channel | Receive Channel | End Channel | Sequence Statement Statement | If Expr Statement Statement | For Expr Statement | Assign VarName AbstractVal | Go Statement Statement
 type Expr = String
 
 -- new types for variable assignments and the list of variable declarations
@@ -11,14 +14,21 @@ newtype ChannelID = ChannelID String
 data VarType = TInt | TBool | TChan
 type VarDec = (String, VarType)
 
-data AbstractVal = Achan ChannelID                  -- Kanalname
-                | Aif Expr AbstractVal AbstractVal  -- eine Auswahl zwischen verschiedenen Abstract Values
-                | Aterm Expr                        -- Ein Ausdruck, der definitiv keinen Kanal enthält
-                | Aunknown                          -- noch unbekannt
+data AbstractVal = Achan ChannelID                        -- Kanalname
+                | Aif Expression AbstractVal AbstractVal  -- eine Auswahl zwischen verschiedenen Abstract Values
+                | Aterm Expression                        -- Ein Ausdruck, der definitiv keinen Kanal enthält
+                | Aunknown                                -- noch unbekannt
+
+data Expression = EVar VarName 
+  | EBool Bool             
+  | EInt Integer          
+  | EFloat Double           
+  | EBinOp BinOp Expression Expression
+
+data BinOp = Add | Sub | Mul | Div | Mod | Gt | Lt | Ge | Le | Eq | Neq | And
 
 type Context = [(VarName, (VarType, AbstractVal))]
 -- TChan kommt nur im kontext als tupel mit Achan oder Aif vor. TBool und TInt nur bei Aterm, sonst ist das Assignment ungültig?
--- TODO new expression datatype
 -- not in use yet
 
 
@@ -27,6 +37,7 @@ newtype ChannelBehavior = ChannelBehavior [(Channel, Statement)]
 
 instance Show Statement where
   show x = case x of
+    New c s -> "new " ++ c ++ show s
     Skip           -> "skip"
     Send _         -> "!"
     Receive _      -> "?"
@@ -34,6 +45,8 @@ instance Show Statement where
     Sequence s1 s2 ->  show s1 ++ ";" ++ show s2
     If e s1 s2     -> show s1 ++ " if " ++ e ++ " else " ++ show s2
     For e s        -> "for " ++ e ++ " " ++ show s
+    Go s1 s2       -> "go" ++ "{" ++ show s1 ++ "}" ++ "{" ++ show s2 ++ "}"
+    Assign _ _     -> ""
 
 instance Show ChannelBehavior where
     show (ChannelBehavior []) = ""
@@ -87,3 +100,7 @@ assignChannelsToStmts stmt =
                     wrapFor :: ChannelBehavior -> Expr -> [(Channel, Statement)]
                     wrapFor (ChannelBehavior xs) expr =
                        [(c, For expr stmt) | (c, stmt) <- xs]
+            -- TODO
+            Assign var val -> []
+            Go s1 s2 -> []
+            New channel s -> []
