@@ -1,7 +1,27 @@
+{-# LANGUAGE GADTs #-}
 module Datastructure where
 import Data.List
-data Statement = Skip | Send Channel | Receive Channel | End Channel | Sequence Statement Statement | If Expr Statement Statement | For Expr Statement
+data Statement = Skip | Send Channel | Receive Channel | End Channel | Sequence Statement Statement | If Expr Statement Statement | For Expr Statement | Assign VarName AbstractVal
 type Expr = String
+
+-- new types for variable assignments and the list of variable declarations
+newtype VarName = VarName String
+newtype ChannelID = ChannelID String
+
+data VarType = TInt | TBool | TChan
+type VarDec = (String, VarType)
+
+data AbstractVal = Achan ChannelID                  -- Kanalname
+                | Aif Expr AbstractVal AbstractVal  -- eine Auswahl zwischen verschiedenen Abstract Values
+                | Aterm Expr                        -- Ein Ausdruck, der definitiv keinen Kanal enthält
+                | Aunknown                          -- noch unbekannt
+
+type Context = [(VarName, (VarType, AbstractVal))]
+-- TChan kommt nur im kontext als tupel mit Achan oder Aif vor. TBool und TInt nur bei Aterm, sonst ist das Assignment ungültig?
+-- TODO new expression datatype
+-- not in use yet
+
+
 type Channel = String
 newtype ChannelBehavior = ChannelBehavior [(Channel, Statement)]
 
