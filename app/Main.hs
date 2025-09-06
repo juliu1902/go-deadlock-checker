@@ -20,7 +20,7 @@ checkClose st = case st of
 
 main :: IO ()
 main = do
-    let input1 = "c <- -4.2\nclose c"
+    let input1 = "if x > 0 then c1 <- 2*x else c2 <- 2*x\nclose c1\nclose c2"
     case runParser parseStatement "" input1 of
       Left err -> putStrLn $ errorBundlePretty err
       Right s  -> do
