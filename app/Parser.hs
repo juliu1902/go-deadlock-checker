@@ -18,7 +18,7 @@ spaceConsumer = do
   return ()
 
 -- Unterstriche in Go überall erlaubt bei identifieren, auch am Anfang
-identifier :: Parser Channel
+identifier :: Parser ChannelID
 identifier = do
     a <- lowerChar <|> char '_'
     b <- many (alphaNumChar <|> char '_')
@@ -82,7 +82,32 @@ ignoreParser = do
 -- ignoriert alle Ausdrücke, die keinem Statement zugeordnet werden können
 parseSingleStatement :: Parser Statement
 parseSingleStatement = do
-    try parseEnd <|> try parseRec <|> try parseSend <|> try parseSkip <|> try parseFor <|> try parseIf
+    try parseMakeBlock <|> try parseEnd <|> try parseRec <|> try parseSend <|> try parseSkip <|> try parseFor <|> parseIf
+
+parseMakeChanName :: Parser String
+parseMakeChanName = do
+    spaceConsumer
+    c <- identifier
+    spaceConsumer
+    _ <- string "::="
+    spaceConsumer
+    _ <- string "make"
+    spaceConsumer
+    _ <- char '('
+    spaceConsumer
+    _ <- string "chan"
+    spaceConsumer
+    _ <- string "int" <|> string "bool"
+    spaceConsumer
+    _ <- char ')'
+    return c
+
+parseMakeBlock :: Parser Statement
+parseMakeBlock = do
+    c <- parseMakeChanName                 -- c ::= make(chan int|bool)
+    spaceConsumer
+    s <- parseStatement
+    return (New c s)
 
 parseSkip :: Parser Statement
 parseSkip = do
@@ -164,6 +189,7 @@ parseSequence = do
 -- Sequence Parser hier indirekt verbaut
 parseStatement :: Parser Statement
 parseStatement = do
-  stmts <- parseSingleStatement `sepEndBy1` (spaceConsumer <|> ignoreParser)
-  return $ foldr1 Sequence stmts
+    stmts <- parseSingleStatement `sepEndBy1` (spaceConsumer <|> ignoreParser)
+    return $ foldr1 Sequence stmts
+
 
