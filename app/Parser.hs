@@ -4,6 +4,7 @@ import Text.Megaparsec.Char as C
 import Text.Megaparsec.Char.Lexer as Lex
 import Data.Void
 import Text.Megaparsec
+import Control.Monad.Combinators.Expr
 
 type Parser = Parsec Void String
 -- whitespaces werden "geschluckt"
@@ -13,76 +14,111 @@ spaceConsumer = do
         space1
         <|> skipLineComment "//"
         <|> skipBlockComment "/*" "*/"
-        <|> try ignoreParser
   many spaceOrCommentOrIgnore
   return ()
 
+-- hilfsparser, der ein symbol parst und die whitespaces davor und danach wegschmeißt
+singleSymbol :: String -> Parser String
+singleSymbol s = do
+    _ <- spaceConsumer
+    sym <- string s
+    _ <- spaceConsumer
+    return sym
+
 -- Unterstriche in Go überall erlaubt bei identifieren, auch am Anfang
-identifier :: Parser ChannelID
+identifier :: Parser String
 identifier = do
     a <- lowerChar <|> char '_'
     b <- many (alphaNumChar <|> char '_')
+    spaceConsumer
     return (a:b)
+-- ein identifier könnte entweder eine variable oder ein channel sein
+parseVar :: Parser VarName
+parseVar = do
+    _ <- spaceConsumer
+    var <- identifier
+    _ <- spaceConsumer
+    return $ VarName var
 
--- Hilfsparser der jede mögliche Zahl als String parst
-numberParser :: Parser String
-numberParser = try parseFloat <|> parseInt where
-    parseInt = fmap show (Lex.signed spaceConsumer Lex.decimal)
-    parseFloat = fmap show (Lex.signed spaceConsumer Lex.float)
-
--- Hilfsparser atomare Ausdrücke (Bool, Identifier, Literale)
-atom :: Parser String
-atom = try boolParser <|> try numberParser <|> identifier
-
-boolParser :: Parser String
-boolParser = do
-    spaceConsumer
-    b <- string "false" <|> string "true"
-    spaceConsumer
-    return b
-
--- Hilfsparser für Operatoren
-operator :: Parser (String -> String -> String)
-operator = do
-    spaceConsumer
-    op <- choice $ map string ["+", "-", "*", "/", "%", ">=", "<=", "==", "!=", ">", "<", "&&"]
-    spaceConsumer
-    return (\a b -> a ++ op ++ b)
-
--- momentan keine geklammerten ausdrücke erlaubt
-chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
-chainl1 p op = do
-    spaceConsumer
-    x <- p
-    spaceConsumer
-    rest x
-    where
-    rest x = (do
-        f <- op
-        spaceConsumer
-        y <- p
-        spaceConsumer
-        rest (f x y)) <|> return x
-
-expressionParser :: Parser Expr
-expressionParser = chainl1 atom operator
+parseChan :: Parser ChannelID
+parseChan = do
+    _ <- spaceConsumer
+    chan <- identifier
+    _ <- spaceConsumer
+    return $ ChannelID chan
 
 -- Ausdrücke wie i := 0 sind zu ignorieren
-ignoreParser :: Parser ()
-ignoreParser = do
-    _ <- identifier
+parseAssign :: Parser Statement
+parseAssign = do
+    i <- parseVar
     spaceConsumer
     _ <- string ":="
     spaceConsumer
-    _ <- identifier <|> numberParser <|> expressionParser
+    _ <- (EVar <$> parseVar)<|> numberParser <|> expressionParser
     spaceConsumer
-    return ()
+    return $ Assign i Aunknown
 
--- kein Parser für Sequence, für Sequence siehe parseStatement
--- ignoriert alle Ausdrücke, die keinem Statement zugeordnet werden können
+-- Hilfsparser der jede mögliche Zahl als String parst
+numberParser :: Parser Expr
+numberParser = try parseFloat <|> parseInt where
+    parseInt = EInt <$> Lex.lexeme spaceConsumer Lex.decimal
+    parseFloat = EFloat <$> Lex.lexeme spaceConsumer Lex.float
+
+boolParser :: Parser Expr
+boolParser = do
+    spaceConsumer
+    b <- string "true" >> return True <|> (string "false" >> return False)
+    spaceConsumer
+    return $ EBool b
+
+-- ( ... )-Ausdrücke
+parensExpr :: Parser Expr
+parensExpr = do
+    spaceConsumer
+    _ <- char '('
+    e <- expressionParser
+    spaceConsumer
+    _ <- char ')'
+    pure e
+
+-- "Term": Werte, Variablen oder geklammert
+term :: Parser Expr
+term =  try boolParser
+    <|> try numberParser
+    <|> EVar <$> try parseVar
+    <|> parensExpr
+
+-- Operator table für die makeExprParser funktion
+table :: [[Operator Parser Expr]]
+table =
+  [ 
+    [Prefix (singleSymbol "-" >> return (EBinOp Sub (EInt 0))) ], -- highest precedence
+
+    [InfixL (singleSymbol "*" >> return (EBinOp Mul)), 
+    InfixL (singleSymbol "/" >> return (EBinOp Div)),
+    InfixL (singleSymbol "%" >> return (EBinOp Mod))],
+
+    [InfixL (singleSymbol "+" >> return (EBinOp Add)), 
+    InfixL (singleSymbol "-" >> return (EBinOp Sub))],
+
+    [InfixN (singleSymbol ">=" >> return (EBinOp Ge)),
+    InfixN (singleSymbol "<=" >> return (EBinOp Le)), 
+    InfixN (singleSymbol ">" >>  return (EBinOp Gt)), 
+    InfixN (singleSymbol "<" >>  return (EBinOp Lt))], 
+
+    [InfixN (singleSymbol "==" >> return (EBinOp Eq)), 
+    InfixN (singleSymbol "!=" >> return (EBinOp Neq))], 
+
+    [InfixL (singleSymbol "&&" >> return (EBinOp And)), 
+    InfixL (singleSymbol "||" >> return (EBinOp Or)) ] -- lowest precedence
+  ]
+
+expressionParser :: Parser Expr
+expressionParser = makeExprParser term table
+
 parseSingleStatement :: Parser Statement
 parseSingleStatement = do
-    try parseMakeBlock <|> try parseEnd <|> try parseRec <|> try parseSend <|> try parseSkip <|> try parseFor <|> parseIf
+    try parseMakeBlock <|> try parseAssign <|> try parseEnd <|> try parseRec <|> try parseSend <|> try parseSkip <|> try parseFor <|> parseIf
 
 parseMakeChanName :: Parser String
 parseMakeChanName = do
@@ -107,7 +143,7 @@ parseMakeBlock = do
     c <- parseMakeChanName                 -- c ::= make(chan int|bool)
     spaceConsumer
     s <- parseStatement
-    return (New c s)
+    return (New (ChannelID c) s)
 
 parseSkip :: Parser Statement
 parseSkip = do
@@ -123,8 +159,8 @@ parseSend = do
     spaceConsumer
     _ <- string "<-"
     spaceConsumer
-    _ <- try expressionParser <|> try identifier <|> numberParser
-    return (Send c)
+    _ <- try expressionParser <|> try term <|> numberParser
+    return (Send (ChannelID c))
 
 -- sowohl x = <- c als auch x := <- c erlaubt, 
 -- obwohl bei x = <- c x vorher deklariert werden muss 
@@ -140,14 +176,14 @@ parseRec = do
     spaceConsumer
     _ <- string "<-"
     spaceConsumer
-    Receive <$> identifier
+    Receive <$> parseChan
 
 parseEnd :: Parser Statement
 parseEnd = do
     spaceConsumer
     _ <- string "close"
     spaceConsumer
-    End <$> identifier
+    End <$> parseChan
 
 -- Bis jetzt nur einfache comparison expressions erlaubt
 parseIf :: Parser Statement
@@ -189,7 +225,7 @@ parseSequence = do
 -- Sequence Parser hier indirekt verbaut
 parseStatement :: Parser Statement
 parseStatement = do
-    stmts <- parseSingleStatement `sepEndBy1` (spaceConsumer <|> ignoreParser)
+    stmts <- parseSingleStatement `sepEndBy1` spaceConsumer
     return $ foldr1 Sequence stmts
 
 
