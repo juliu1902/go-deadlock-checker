@@ -12,7 +12,7 @@ type VarDec = (String, VarType)
 type VarDecs = [VarDec]
 
 data AbstractVal = Achan ChannelID                        -- Kanalname
-                | Aif Expr       AbstractVal AbstractVal  -- eine Auswahl zwischen verschiedenen Abstract Values
+                | Aif Expr AbstractVal AbstractVal        -- eine Auswahl zwischen verschiedenen Abstract Values
                 | Aterm Expr                              -- Ein Ausdruck, der definitiv keinen Kanal enthält
                 | Aunknown                                -- noch unbekannt
                 deriving (Show)                         

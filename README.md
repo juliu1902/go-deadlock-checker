@@ -6,7 +6,7 @@ A static deadlock detection tool for (limited) Go programs. Written in Haskell a
 Program        := { Declaration } { Statement } ;
 Declaration    := var x int|bool|chan int|chan bool ;
 Statement      := Send | Receive | End | If | For | Skip ;
-New Channel    := make (chan int|bool)
+New Channel    := make (chan int|bool) ;
 Skip           := 'skip' ;
 Send           := identifier '<-' Expr ;
 Receive        := identifier '= <-' identifier ;
@@ -42,7 +42,41 @@ Assignments    := identifier ':=' ( number | identifier | Expr ) ; // allowed ev
 
 - Skip is technically parsed and allowed where a Statement is also allowed, but it's only functional inside an If.
 
+# Channels
+### Naming
+Every channel gets its name from the left-side identifier of `id ::= make (chan int)`
+### Internal Representation
+In our variable environment every channel gets represented as an `Achan id` out of our Datatype `AbstractValue`. That's if `id`
+is referencing to the channel with name `id`.
 
+If a variable, let's call it `c`, refers to different channels based on a condition b, then its represented by `Aif cond v1 v2`.
+Operationen auf dieser Variablen erzeugen entsprechend einen if cond then … else … Prozess.
+Every operation with this `c` (f.e. we want to send on c) creates a `if cond then ... else ...` process.
+
+examples:
+```
+var c1 chan int
+c1 ::= make (chan int)
+```
+Type of c: `TChan CInt`
+Value of c: `Achan "c1"`
+```
+var c1 chan int
+var c2 chan int
+var c chan int
+c1 ::= make (chan int)
+c2 ::= make (chan int)
+if b then { c = c1 } else { c = c2 }
+```
+Type of c: `TChan CInt`
+Value of c: `Aif b (Achan "c1") (Achan "c2")`
+
+```
+var x int
+x ::= 0
+```
+Type of x: `TInt`
+Value of x: `Aterm (EInt 0)`
 
 # functions overview
 
