@@ -7,12 +7,13 @@ import Datastructure
 
 main :: IO ()
 main = do
-    let input1 = "c1 ::= make (chan int)\nc2 ::= make (chan int)\nif x > 0 then c1 <- 2*x else c2 <- 2*x\nclose c1\nclose c2"
-    case runParser parseStatement "" input1 of
+    let input1 = "var c1 chan int\nvar c2 chan int\nvar x int\nc1 ::= make (chan int)\nc2 ::= make (chan int)\nif x > 0 then c1 <- 2*x else c2 <- 2*x\nclose c1\nclose c2"
+    case runParser parseProgram "" input1 of
       Left err -> putStrLn $ errorBundlePretty err
-      Right s  -> do
+      Right (Program decs stmt)  -> do
         putStrLn $ "Parsed Statement:\n" ++ input1
-        putStrLn ("Session Type: " ++ stmtToST s ++ "\n")
+        putStrLn ("Session Type: " ++ stmtToST stmt ++ "\n")
+        putStrLn ("Variables: " ++ show decs ++ "\n")
     let input2 = "c ::= make (chan int)\nx = <- c \nif 2 > 0 then c <- 2*x else skip \nclose c"
     case runParser parseStatement "" input2 of
       Left err -> putStrLn $ errorBundlePretty err

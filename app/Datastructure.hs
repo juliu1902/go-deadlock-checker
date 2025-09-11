@@ -6,9 +6,10 @@ data Statement = New ChannelID Statement | Skip | Send ChannelID | Receive Chann
 -- new types for variable assignments and the list of variable declarations
 newtype VarName = VarName String
 newtype ChannelID = ChannelID String deriving (Show) -- type or newtype tbd
-
-data VarType = TInt | TBool | TChan deriving (Show)
-type VarDec = (String, VarType) 
+data ChanType = CInt | CBool deriving (Show)
+data VarType = TInt | TBool | TChan ChanType deriving (Show)
+type VarDec = (String, VarType)
+type VarDecs = [VarDec]
 
 data AbstractVal = Achan ChannelID                        -- Kanalname
                 | Aif Expr       AbstractVal AbstractVal  -- eine Auswahl zwischen verschiedenen Abstract Values
@@ -24,7 +25,9 @@ data Expr = EVar VarName
 
 data BinOp = Add | Sub | Mul | Div | Mod | Gt | Lt | Ge | Le | Eq | Neq | And | Or
 
-type Context = [(VarName, (VarType, AbstractVal))]
+data Program = Program VarDecs Statement
+
+-- type Context = [(VarName, (VarType, AbstractVal))]
 -- TChan kommt nur im kontext als tupel mit Achan oder Aif vor. TBool und TInt nur bei Aterm, sonst ist das Assignment ungültig?
 -- not in use yet
 
@@ -49,8 +52,8 @@ instance Show BinOp where
     Gt -> ">"
     Lt -> "<"
     Ge -> ">="
-    Le -> ">="
-    Eq -> "="
+    Le -> "<="
+    Eq -> "=="
     Neq -> "!="
     And -> "&&"
     Or -> "||"

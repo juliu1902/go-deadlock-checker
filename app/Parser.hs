@@ -20,9 +20,9 @@ spaceConsumer = do
 -- hilfsparser, der ein symbol parst und die whitespaces davor und danach wegschmeißt
 singleSymbol :: String -> Parser String
 singleSymbol s = do
-    _ <- spaceConsumer
+    spaceConsumer
     sym <- string s
-    _ <- spaceConsumer
+    spaceConsumer
     return sym
 
 -- Unterstriche in Go überall erlaubt bei identifieren, auch am Anfang
@@ -34,18 +34,10 @@ identifier = do
     return (a:b)
 -- ein identifier könnte entweder eine variable oder ein channel sein
 parseVar :: Parser VarName
-parseVar = do
-    _ <- spaceConsumer
-    var <- identifier
-    _ <- spaceConsumer
-    return $ VarName var
+parseVar = VarName <$> identifier
 
 parseChan :: Parser ChannelID
-parseChan = do
-    _ <- spaceConsumer
-    chan <- identifier
-    _ <- spaceConsumer
-    return $ ChannelID chan
+parseChan = ChannelID <$> identifier
 
 -- Ausdrücke wie i := 0 sind zu ignorieren
 parseAssign :: Parser Statement
@@ -70,6 +62,44 @@ boolParser = do
     b <- string "true" >> return True <|> (string "false" >> return False)
     spaceConsumer
     return $ EBool b
+
+parseVarTypes :: Parser VarType
+parseVarTypes = do
+    spaceConsumer
+    x <- try parseChan <|> try parseBool <|> parseInt
+    return x
+  where
+    parseInt = do
+        _ <- string "int"
+        return TInt
+    parseBool = do
+        _ <- string "bool"
+        return TBool
+    parseChan = do
+        _ <- string "chan"
+        spaceConsumer
+        y <- parseCInt <|> parseCBool
+        return (TChan y)
+      where
+        parseCInt = do
+            _ <- string "int"
+            return CInt
+        parseCBool = do
+            _ <- string "bool"
+            return CBool
+
+varDecParser :: Parser VarDec 
+varDecParser = do 
+    spaceConsumer 
+    _ <- string "var" 
+    spaceConsumer 
+    v <- identifier
+    ty <- parseVarTypes
+    return (v, ty)
+
+parseVarDecs :: Parser VarDecs
+parseVarDecs = do
+    varDecParser `sepEndBy` spaceConsumer
 
 -- ( ... )-Ausdrücke
 parensExpr :: Parser Expr
@@ -227,5 +257,11 @@ parseStatement :: Parser Statement
 parseStatement = do
     stmts <- parseSingleStatement `sepEndBy1` spaceConsumer
     return $ foldr1 Sequence stmts
+
+parseProgram :: Parser Program
+parseProgram = do
+    decs <- parseVarDecs
+    stmt <- parseStatement
+    return (Program decs stmt)
 
 

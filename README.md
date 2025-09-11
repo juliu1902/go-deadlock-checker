@@ -3,8 +3,8 @@ A static deadlock detection tool for (limited) Go programs. Written in Haskell a
 
 # supported GO-Syntax
 ```
-Program        := { Statement } ;
-
+Program        := { Declaration } { Statement } ;
+Declaration   := var x int|bool|chan int|chan bool ;
 Statement      := Send | Receive | End | If | For | Skip ;
 
 Skip           := 'skip' ;
