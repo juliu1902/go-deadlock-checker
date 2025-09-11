@@ -39,16 +39,16 @@ parseVar = VarName <$> identifier
 parseChan :: Parser ChannelID
 parseChan = ChannelID <$> identifier
 
--- Ausdrücke wie i := 0 sind zu ignorieren
+-- Ausdrücke wie i := 0 oder c = c1
 parseAssign :: Parser Statement
 parseAssign = do
     i <- parseVar
     spaceConsumer
-    _ <- string ":="
+    _ <- try (string ":=") <|> string "="
     spaceConsumer
-    _ <- (EVar <$> parseVar)<|> numberParser <|> expressionParser
+    expr <- expressionParser
     spaceConsumer
-    return $ Assign i Aunknown
+    return $ Assign i expr
 
 -- Hilfsparser der jede mögliche Zahl als String parst
 numberParser :: Parser Expr
