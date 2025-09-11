@@ -4,9 +4,9 @@ A static deadlock detection tool for (limited) Go programs. Written in Haskell a
 # supported GO-Syntax
 ```
 Program        := { Declaration } { Statement } ;
-Declaration   := var x int|bool|chan int|chan bool ;
+Declaration    := var x int|bool|chan int|chan bool ;
 Statement      := Send | Receive | End | If | For | Skip ;
-
+New Channel    := make (chan int|bool)
 Skip           := 'skip' ;
 Send           := identifier '<-' Expr ;
 Receive        := identifier '= <-' identifier ;
