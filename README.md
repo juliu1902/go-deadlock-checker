@@ -44,10 +44,10 @@ Assignments    := identifier ':=' ( number | identifier | Expr ) ; // allowed ev
 
 # Channels
 ### Naming
-Every channel gets its name from the identifier of `id ::= make (chan int)` or `var id chan int`
+Every channel gets its name from the identifier of `var id chan int`
 ### Internal Representation
 In our variable environment every channel gets represented as an `Achan id` out of our Datatype `AbstractValue`. That's if `id`
-is referencing to the channel with name `id`.
+is referencing to the channel with name `id` by `id ::= make (chan int)`.
 
 If a variable, let's call it `c`, refers to different channels based on a condition b, then its represented by `Aif cond v1 v2`.
 Every operation with this `c` (f.e. we want to send on c) creates a `if cond then ... else ...` process.

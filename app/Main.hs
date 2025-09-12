@@ -13,8 +13,8 @@ main = do
       Right (Program decs stmt) -> do
         putStrLn $ "Parsed Statement:\n" ++ input0
         putStrLn ("Session Type: " ++ stmtToST stmt ++ "\n")
-        putStrLn ("Variables: " ++ show decs ++ "\n")
         putStrLn ("Abstract Value Context: " ++ show (inferContext decs stmt))        
+        putStrLn ("Variables: " ++ show decs ++ "\n")
     let input1 = "var c1 chan int\nvar c2 chan int\nvar x int\nc1 ::= make (chan int)\nc2 ::= make (chan int)\nif x > 0 then c1 <- 2*x else c2 <- 2*x\nclose c1\nclose c2"
     case runParser parseProgram "" input1 of
       Left err -> putStrLn $ errorBundlePretty err
