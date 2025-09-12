@@ -100,9 +100,9 @@ inferContext decs stmt = inferStmt (initialContext decs) stmt where
   inferStmt ctxt st = case st of
     -- the "easy" cases
     Send _   -> ctxt
-    New _ s1  -> inferStmt ctxt s1
+    New chan@(ChannelID c) s1  -> inferStmt (updateOneAV (VarName c) (Achan chan) ctxt) s1
     Go  _ _   -> ctxt  -- ?
-    skip      -> ctxt
+    Skip      -> ctxt
     End _     -> ctxt
     Receive _ -> ctxt
     For _ _   -> ctxt -- TODO - sollte so nicht behandelt werden, weiß noch nicht mit for umzugehen
