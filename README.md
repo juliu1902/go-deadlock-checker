@@ -44,12 +44,13 @@ Assignments    := identifier ':=' ( number | identifier | Expr ) ; // allowed ev
 
 # Channels
 ### Naming
-Every channel gets its name from the identifier of `var id chan int`
+Every channel has a unique "internal" name, `id<n>` with n being an increasing integer starting with 0. The Channel name has type ChannelID and can
+only be given internally. A fresh Channel is generated with `var c chan int` or `var c chan bool`
 ### Internal Representation
-In our variable environment every channel gets represented as an `Achan id` out of our Datatype `AbstractValue`. That's if `id`
-is referencing to the channel with name `id` by `id ::= make (chan int)`.
+In our variable environment every channel gets represented as an `AChan id` out of our Datatype `AbstractValue`. That's if `id` is created
+with `var id chan int`
 
-If a variable, let's call it `c`, refers to different channels based on a condition b, then its represented by `Aif cond v1 v2`.
+If a variable, let's call it `c`, refers to different channels based on a condition b, then its represented by `AIf cond v1 v2`.
 Every operation with this `c` (f.e. we want to send on c) creates a `if cond then ... else ...` process.
 
 examples:
@@ -63,26 +64,26 @@ Value of c: `Achan "c1"`
 var c1 chan int
 var c2 chan int
 var c chan int
-c1 ::= make (chan int)
-c2 ::= make (chan int)
+c1 ::= make (chan int) -- optional, only needed for ST visibility (new c1.) 
+c2 ::= make (chan int) -- optional, only needed for ST visibility (new c2.)
 if b then { c = c1 } else { c = c2 }
 ```
 Type of c: `TChan CInt`
-Value of c: `Aif b (Achan "c1") (Achan "c2")`
+Value of c: `AIf b (AChan "id0") (AChan "id1")`
 
 ```
 var x int
 x ::= 0
 ```
 Type of x: `TInt`
-Value of x: `Aterm (EInt 0)`
+Value of x: `ATerm (EInt 0)`
 
 # functions overview
 
-### parseStatement
+### parseProgram
 - **Input:** Go source code as a string
-- **Output:** Statement
-- **Purpose:** Parses a Go program into our internal `Statement` datatype using Megaparsec. Can be executed with `runParser`
+- **Output:** Program
+- **Purpose:** Parses a Go program into our internal `Program` datatype using Megaparsec. Can be executed with `runParser`
 
 ### stmtToST
 - **Input:** Statement

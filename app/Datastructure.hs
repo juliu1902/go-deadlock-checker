@@ -14,7 +14,7 @@ data VarType = TInt | TBool | TChan ChanType deriving (Show)
 type VarDec = (VarName, VarType)
 type VarDecs = [VarDec]
 
-data AbstractVal = Achan ChannelID                        -- Kanalname
+data AbstractVal = AChan ChannelID                        -- Kanalname
                 | AIf Expr AbstractVal AbstractVal        -- eine Auswahl zwischen verschiedenen Abstract Values
                 | ATerm Expr                              -- Ein Ausdruck, der definitiv keinen Kanal enthält
                 | AUnknown                                -- noch unbekannt
@@ -66,9 +66,21 @@ freshChannel = do
   put (n+1)
   return $ ChannelID ("id" ++ show n)
 
--- in the beginning all the Abstract Values are unknown!
+-- in the beginning all the Abstract Values are unknown
 initialContext :: VarDecs -> Context
-initialContext decs = Map.fromList [ ((x), (y, AUnknown)) | (x, y) <- decs] 
+initialContext decs = Map.fromList [ ((x), (y, AUnknown)) | (x, y) <- decs]
+-- except for the channel type annotations in the beginning
+-- var chan int/bool should automatically create fresh channels with unique channelID
+freshInitialContext :: Context -> Context
+freshInitialContext initialc = evalState (traverse freshOne initialc) 0 where -- traverse :: (Traversable t, Applicative f) => (a -> f b) -> t a -> f (t b)
+  freshOne :: (VarType, AbstractVal) -> FreshM (VarType, AbstractVal)                      --                                               freshOne     ctxt    FreshM (VarType, AbstractVal)
+  freshOne (t, av) = do
+    case t of
+      TChan x -> do
+        newid <- freshChannel
+        return (t, AChan newid)
+      _ -> return (t, AUnknown)
+
 
 -- finds vartype of a variable
 lookupType :: VarName -> Context -> Maybe VarType
@@ -95,7 +107,7 @@ mergeIfContexts cond c1 c2 = case Map.lookupMin c1 of
       else Map.insert k (t, AIf cond av av2) (mergeIfContexts cond (Map.deleteMin c1) (Map.delete k c2)) -- it's required for abs and abs2 to have the same VarType!
     where
       abstractEq :: AbstractVal -> AbstractVal -> Bool
-      abstractEq (Achan c1) (Achan c2) = c1 == c2
+      abstractEq (AChan c1) (AChan c2) = c1 == c2
       abstractEq (ATerm e1) (ATerm e2) = e1 == e2
       abstractEq AUnknown AUnknown = True
       abstractEq _ _ = False
@@ -104,34 +116,23 @@ mergeIfContexts cond c1 c2 = case Map.lookupMin c1 of
 -- takes the variable declarations and the parsed statement and 
 -- extracts all abstract values out of the program
 inferContext :: VarDecs -> Statement -> Context
-inferContext decs stmt = evalState (inferStmt (initialContext decs) stmt) 0 where -- evalState :: State s a -> s -> a, 0 is our starting state s, a Context will be returned (-> a)
-  inferStmt :: Context -> Statement -> FreshM Context -- State Int Context
+inferContext decs stmt = inferStmt (freshInitialContext (initialContext decs)) stmt  where -- evalState :: State s a -> s -> a, 0 is our starting state s, a Context will be returned (-> a)
+  inferStmt :: Context -> Statement -> Context
   inferStmt ctxt st = case st of
-    Send _    -> return ctxt
-    Go  _ _   -> return ctxt
-    Skip      -> return ctxt
-    End _     -> return ctxt
-    Receive _ -> return ctxt
-    For _ _   -> return ctxt -- TODO - sollte so nicht behandelt werden, weiß noch nicht mit for umzugehen
+    New _ _   -> ctxt
+    Send _    -> ctxt
+    Go  _ _   -> ctxt
+    Skip      -> ctxt
+    End _     -> ctxt
+    Receive _ -> ctxt
+    For _ _   -> ctxt -- TODO - sollte so nicht behandelt werden, weiß noch nicht mit for umzugehen
 
-    New var s -> do
-      newid <- freshChannel
-      inferStmt (updateOneAV var (Achan newid) ctxt) s
-
-    Sequence s1 s2 -> do
-      ctxt2 <- inferStmt ctxt s1
-      inferStmt ctxt2 s2
-    
+    Sequence s1 s2 -> inferStmt (inferStmt ctxt s1) s2
     Assign var (EVar x) -> case lookupType x ctxt of
-      Just (TChan y) -> return (updateOneAV (var) (lookupAV x ctxt) ctxt) -- var = x -> var needs to have the AV of x if x exists in ctxt, else AUnknown
-      _ -> return (updateOneAV var (ATerm (EVar x)) ctxt) -- var = x und x ist int oder bool, definitiv kein Kanal
-
-    Assign var x -> return (updateOneAV var (ATerm x) ctxt) -- all other expressions are kept in the ATerm constructor of AV
-    
-    If cond s1 s2 -> do
-      ctxt1 <- inferStmt ctxt s1
-      ctxt2 <- inferStmt ctxt s2
-      return (mergeIfContexts cond ctxt1 ctxt2) -- we have to return a Context wrapped in a FreshMonad, since mergeIfContext returns a Context only, we have to lift it into a FreshM by using return (or pure)
+      Just (TChan y) -> (updateOneAV (var) (lookupAV x ctxt) ctxt) -- var = x -> var needs to have the AV of x if x exists in ctxt, else AUnknown
+      _ -> (updateOneAV var (ATerm (EVar x)) ctxt) -- var = x und x ist int oder bool, definitiv kein Kanal
+    Assign var x -> updateOneAV var (ATerm x) ctxt
+    If cond s1 s2 -> mergeIfContexts cond (inferStmt ctxt s1) (inferStmt ctxt s2)
 
 -- representing the parsed Statement as a Session Type
 stmtToST :: Statement -> String
@@ -140,7 +141,7 @@ stmtToST x = case x of
     Skip                        -> "skip"
     Send (VarName ch)         -> ch ++ "!"
     Receive (VarName ch)      -> ch ++ "?"
-    End (VarName ch)          -> ch ++ ".end"
+    End (VarName ch)          -> ch ++ "#"
     Sequence s1 s2 ->
       let a = stmtToST s1
           b = stmtToST s2
