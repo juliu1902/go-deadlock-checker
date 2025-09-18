@@ -7,6 +7,7 @@ import Datastructure
 
 main :: IO ()
 main = do
+    putStrLn (show test)
     let input0 = "var c1 chan int\nvar c2 chan int\nvar c chan int\nc1 ::= make (chan int)\nc2 ::= make (chan int)\nif b then { c = c1 } else { c = c2 }"
     case runParser parseProgram "" input0 of
       Left err -> putStrLn $ errorBundlePretty err 

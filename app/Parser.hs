@@ -36,9 +36,6 @@ identifier = do
 parseVar :: Parser VarName
 parseVar = VarName <$> identifier
 
-parseChan :: Parser ChannelID
-parseChan = ChannelID <$> identifier
-
 -- Ausdrücke wie i := 0 oder c = c1
 parseAssign :: Parser Statement
 parseAssign = do
@@ -66,7 +63,7 @@ boolParser = do
 parseVarTypes :: Parser VarType
 parseVarTypes = do
     spaceConsumer
-    x <- try parseChan <|> try parseBool <|> parseInt
+    x <- try parseVar <|> try parseBool <|> parseInt
     return x
   where
     parseInt = do
@@ -75,7 +72,7 @@ parseVarTypes = do
     parseBool = do
         _ <- string "bool"
         return TBool
-    parseChan = do
+    parseVar = do
         _ <- string "chan"
         spaceConsumer
         y <- parseCInt <|> parseCBool
@@ -95,7 +92,7 @@ varDecParser = do
     spaceConsumer 
     v <- identifier
     ty <- parseVarTypes
-    return (v, ty)
+    return (VarName v, ty)
 
 parseVarDecs :: Parser VarDecs
 parseVarDecs = do
@@ -173,7 +170,7 @@ parseMakeBlock = do
     c <- parseMakeChanName                 -- c ::= make(chan int|bool)
     spaceConsumer
     s <- parseStatement
-    return (New (ChannelID c) s)
+    return (New (VarName c) s)
 
 parseSkip :: Parser Statement
 parseSkip = do
@@ -190,7 +187,7 @@ parseSend = do
     _ <- string "<-"
     spaceConsumer
     _ <- try expressionParser <|> try term <|> numberParser
-    return (Send (ChannelID c))
+    return (Send (VarName c))
 
 -- sowohl x = <- c als auch x := <- c erlaubt, 
 -- obwohl bei x = <- c x vorher deklariert werden muss 
@@ -206,14 +203,14 @@ parseRec = do
     spaceConsumer
     _ <- string "<-"
     spaceConsumer
-    Receive <$> parseChan
+    Receive <$> parseVar
 
 parseEnd :: Parser Statement
 parseEnd = do
     spaceConsumer
     _ <- string "close"
     spaceConsumer
-    End <$> parseChan
+    End <$> parseVar
 
 -- Bis jetzt nur einfache comparison expressions erlaubt
 parseIf :: Parser Statement
