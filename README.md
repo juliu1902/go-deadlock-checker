@@ -82,7 +82,7 @@ Value of x: `Aterm (EInt 0)`
 ### parseStatement
 - **Input:** Go source code as a string
 - **Output:** Statement
-- **Purpose:** Parses a Go program into our internal `Statement` datatype using Megaparsec. Can be executes with `runParser`
+- **Purpose:** Parses a Go program into our internal `Statement` datatype using Megaparsec. Can be executed with `runParser`
 
 ### stmtToST
 - **Input:** Statement
