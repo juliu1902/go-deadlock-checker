@@ -29,19 +29,19 @@ main = do
       Right s  -> do
         putStrLn $ "Parsed Statement:\n" ++ input2
         putStrLn ("Session Type: " ++ stmtToST s++ "\n")
-    let input3 = "c ::= make (chan int)\ni := 0\nfor i < 10 { c <- i }\nclose c"
+    let input3 = "c ::= make (chan int)\ni := 0\nfor (i=0;i<10;i++) { c <- i }\nclose c"
     case runParser parseStatement "" input3 of
       Left err -> putStrLn $ errorBundlePretty err
       Right s  -> do
         putStrLn $ "Parsed Statement:\n" ++ input3
         putStrLn ("Session Type: " ++ stmtToST s ++ "\n")
-    let input4 = "c ::= make (chan int)\nx = <- c\nif x > 0 then c <- 2*x else\nif x < 0 then c <- 3*x else skip\nclose c"
+    let input4 = "c ::= make (chan int)\nx = <- c\nif (x > 0) then c <- 2*x else\nif x < 0 then c <- 3*x else skip\nclose c"
     case runParser parseStatement "" input4 of
       Left err -> putStrLn $ errorBundlePretty err
       Right s  -> do
         putStrLn $ "Parsed Statement:\n" ++ input4
         putStrLn ("Session Type: " ++ stmtToST s++ "\n")
-    let input5 = "c1 ::= make (chan int)\nc2 ::= make (chan int)\nfor i<5 {\nx = <- c1\nc2 <- x*2\ny = <- c1}\nclose c1\nclose c2"
+    let input5 = "c1 ::= make (chan int)\nc2 ::= make (chan int)\nfor (i=0;i<5;i++) {\nx = <- c1\nc2 <- x*2\ny = <- c1}\nclose c1\nclose c2"
     case runParser parseStatement "" input5 of
       Left err -> putStrLn $ errorBundlePretty err
       Right s  -> do

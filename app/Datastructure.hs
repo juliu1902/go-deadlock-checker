@@ -2,12 +2,18 @@ module Datastructure where
 import qualified Data.Map as Map (Map, fromList, lookup, insert, lookupMin, deleteMin, empty, map, delete)
 import Control.Monad.State
 import Control.Monad(replicateM)
-data Statement = New VarName Statement | Skip | Send VarName | Receive VarName | End VarName | Sequence Statement Statement | If Expr Statement Statement | For Expr Statement | Assign VarName Expr | Go Statement Statement deriving (Show)
-
+data Statement = New VarName Statement | Skip | Send VarName | Receive VarName | End VarName | Sequence Statement Statement | If Expr Statement Statement | For ForHeader Statement | Assign VarName Expr | Go Statement Statement deriving (Show)
 -- new types for variable assignments and the list of variable declarations
 newtype VarName = VarName String deriving (Eq, Ord)
 newtype ChannelID = ChannelID String deriving (Show, Eq) -- type or newtype tbd
 type FreshM = State Int -- State Int Monad for unique channelID naming
+data ForHeader = ForHeaderRunning VarName Int Expr IncDec | ForHeaderRange VarName VarName deriving (Show) 
+data IncDec = Inc | Dec
+
+instance Show (IncDec) where
+  show Inc = "++"
+  show Dec = "--"
+
 
 data ChanType = CInt | CBool deriving (Show)
 data VarType = TInt | TBool | TChan ChanType deriving (Show)
@@ -41,7 +47,7 @@ instance Show Expr where
     EBool x -> show x
     EInt x -> show x
     EFloat x -> show x
-    EBinOp op e1 e2 -> "(" ++ show e1 ++ show op ++ show e2 ++ ")"
+    EBinOp op e1 e2 -> show e1 ++ show op ++ show e2
 
 instance Show BinOp where
   show op = case op of
@@ -125,7 +131,7 @@ inferContext decs stmt = inferStmt (freshInitialContext (initialContext decs)) s
     Skip      -> ctxt
     End _     -> ctxt
     Receive _ -> ctxt
-    For _ _   -> ctxt -- TODO - sollte so nicht behandelt werden, weiß noch nicht mit for umzugehen
+    For _ _   -> ctxt
 
     Sequence s1 s2 -> inferStmt (inferStmt ctxt s1) s2
     Assign var (EVar x) -> case lookupType x ctxt of
@@ -153,9 +159,10 @@ stmtToST x = case x of
         (False, False) -> a ++ ";" ++ b
     If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
     If e s1 s2     -> block s1 ++ " if " ++ show e ++ " else " ++ block s2
-    For e s        -> "for " ++ show e ++ " " ++ block s
     Go s1 s2       -> "go" ++ "{" ++ stmtToST s1 ++ "}" ++ "{" ++ stmtToST s2 ++ "}"
     Assign _ _     -> ""
+    For (ForHeaderRunning var start e incdec) s -> "for " ++ "(" ++ show var ++ "=" ++ show start ++ ";" ++ show e ++ ";" ++ show var ++ show incdec ++ ") " ++ block s
+    For (ForHeaderRange var chan) s -> "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
     where 
         block :: Statement -> String
         block st@(Sequence _ _) = "{" ++ stmtToST st ++ "}"

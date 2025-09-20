@@ -229,14 +229,62 @@ parseIf = do
     b <- parseSequence <|> parseSingleStatement
     return (If cond a b)
 
+-- For ForHeader Statement
 parseFor :: Parser Statement
 parseFor = do
     spaceConsumer
+    head <- parseForHeader
+    spaceConsumer
+    s <- parseSequence
+    return (For head s)
+
+parseForHeader :: Parser ForHeader
+parseForHeader = do
+    spaceConsumer
     _ <- string "for"
     spaceConsumer
-    cond <- expressionParser
-    s <- parseSequence
-    return (For cond s)
+    _ <- char '('
+    spaceConsumer
+    x <- identifier
+    spaceConsumer
+    try (parseRunning x) <|> parseRange x where
+        parseRunning :: String -> Parser ForHeader
+        parseRunning x = do
+            _ <- char '='
+            spaceConsumer
+            start <- Lex.lexeme spaceConsumer Lex.decimal
+            spaceConsumer
+            _ <- char ';'
+            spaceConsumer
+            e <- expressionParser
+            spaceConsumer
+            _ <- char ';'
+            spaceConsumer
+            incdec <- parseIncDec
+            spaceConsumer
+            _ <- char ')'
+            return $ ForHeaderRunning (VarName x) start e incdec
+        parseRange :: String -> Parser ForHeader
+        parseRange x = do
+            _ <- string ":="
+            spaceConsumer
+            __ <- string "range"
+            spaceConsumer
+            chan <- identifier
+            spaceConsumer
+            _ <- char ')'
+            return $ ForHeaderRange (VarName x) (VarName chan)
+
+parseIncDec :: Parser IncDec
+parseIncDec = do
+    _ <- identifier
+    try parseInc <|> parseDec where
+        parseInc = do
+            _ <- string "++"
+            return Inc
+        parseDec = do
+            _ <- string "--"
+            return Dec
 
 -- used for {}-codeblocks inside for/ifs
 parseSequence :: Parser Statement
