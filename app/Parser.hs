@@ -103,9 +103,11 @@ parensExpr :: Parser Expr
 parensExpr = do
     spaceConsumer
     _ <- char '('
+    spaceConsumer
     e <- expressionParser
     spaceConsumer
     _ <- char ')'
+    spaceConsumer
     pure e
 
 -- "Term": Werte, Variablen oder geklammert

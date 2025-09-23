@@ -167,3 +167,17 @@ stmtToST x = case x of
         block :: Statement -> String
         block st@(Sequence _ _) = "{" ++ stmtToST st ++ "}"
         block st = stmtToST st
+
+-- flips the directions of all communications
+dual :: Statement -> Statement
+dual (Send var) = Receive var
+dual (Receive var) = Send var 
+dual (New var s) = New var (dual s)
+dual (Sequence s1 s2) = Sequence (dual s1) (dual s2)
+dual (If e s1 s2) = If e (dual s1) (dual s2)
+dual (For head s) = For head (dual s)
+dual (Go s1 s2) = Go (dual s1) (dual s2)
+dual x = x
+-- dual (Assign var e) = Assign var e
+-- dual (Skip) = Skip
+-- dual (End var) = End var
