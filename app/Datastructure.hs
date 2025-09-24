@@ -168,6 +168,34 @@ stmtToST x = case x of
         block st@(Sequence _ _) = "{" ++ stmtToST st ++ "}"
         block st = stmtToST st
 
+-- representing the parsed Statement as a Session Type
+stmtToST' :: Context -> Statement -> String
+stmtToST' ctxt x = case x of
+    New (VarName c) s         -> "new " ++ c ++ "." ++ stmtToST' ctxt s
+    Skip                        -> "skip"
+    Send (VarName ch)         -> ch ++ "!"
+    Receive (VarName ch)      -> ch ++ "?"
+    End (VarName ch)          -> ch ++ "#"
+    Sequence s1 s2 ->
+      let a = stmtToST' ctxt s1
+          b = stmtToST' ctxt s2
+      -- assignments werden nicht mit ; getrennt sondern ignoriert
+      in case (null a, null b) of
+        (True,  True)  -> ""
+        (True,  False) -> b
+        (False, True)  -> a
+        (False, False) -> a ++ ";" ++ b
+    If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
+    If e s1 s2     -> block s1 ++ " if " ++ show (evaluateExpr ctxt e) ++ " else " ++ block s2
+    Go s1 s2       -> "go" ++ "{" ++ stmtToST' ctxt s1 ++ "}" ++ "{" ++ stmtToST' ctxt s2 ++ "}"
+    Assign _ _     -> ""
+    For (ForHeaderRunning var start e incdec) s -> "for " ++ "(" ++ show var ++ "=" ++ show start ++ ";" ++ show (evaluateExpr ctxt e) ++ ";" ++ show var ++ show incdec ++ ") " ++ block s
+    For (ForHeaderRange var chan) s -> "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
+    where 
+        block :: Statement -> String
+        block st@(Sequence _ _) = "{" ++ stmtToST' ctxt st ++ "}"
+        block st = stmtToST' ctxt st
+
 -- flips the directions of all communications
 dual :: Statement -> Statement
 dual (Send var) = Receive var
@@ -177,7 +205,15 @@ dual (Sequence s1 s2) = Sequence (dual s1) (dual s2)
 dual (If e s1 s2) = If e (dual s1) (dual s2)
 dual (For head s) = For head (dual s)
 dual (Go s1 s2) = Go (dual s1) (dual s2)
+-- Assign, Skip End bleiben unverändert
 dual x = x
--- dual (Assign var e) = Assign var e
--- dual (Skip) = Skip
--- dual (End var) = End var
+
+
+-- substitutes all variables in an expression with a context
+evaluateExpr :: Context -> Expr -> Expr 
+evaluateExpr ctxt (EVar x) = case (Map.lookup x ctxt) of
+  Just (t, ATerm x) -> evaluateExpr ctxt x
+  _ -> (EVar x)
+evaluateExpr ctxt (EBinOp op e1 e2) = EBinOp op (evaluateExpr ctxt e1) (evaluateExpr ctxt e2)
+-- float int bool unverändert
+evaluateExpr ctxt x = x

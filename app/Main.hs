@@ -34,12 +34,12 @@ main = do
         putStrLn ("Abstract Value Context: " ++ show (inferContext decs stmt))
         putStrLn ("Dual ST: " ++ stmtToST (dual stmt))  
         putStrLn ("Variables: " ++ show decs ++ "\n")
-    let input3 = "var c chan int\ni := 0\nfor (i=0;i<10;i++) { c <- i }\nclose c"
+    let input3 = "var c chan int\nfor (i=0;i<10;i++) { c <- i }\nclose c"
     case runParser parseProgram "" input3 of
       Left err -> putStrLn $ errorBundlePretty err
       Right (Program decs stmt)  -> do
         putStrLn $ "Parsed Statement:\n" ++ input3
-        putStrLn ("Session Type: " ++ stmtToST stmt ++ "\n")
+        putStrLn ("Session Type: " ++ stmtToST' (inferContext decs stmt) stmt ++ "\n")
         putStrLn ("Abstract Value Context: " ++ show (inferContext decs stmt))
         putStrLn ("Dual ST: " ++ stmtToST (dual stmt))  
         putStrLn ("Variables: " ++ show decs ++ "\n")
@@ -48,7 +48,7 @@ main = do
       Left err -> putStrLn $ errorBundlePretty err
       Right (Program decs stmt)  -> do
         putStrLn $ "Parsed Statement:\n" ++ input4
-        putStrLn ("Session Type: " ++ stmtToST stmt ++ "\n")
+        putStrLn ("Session Type: " ++ stmtToST' (inferContext decs stmt) stmt ++ "\n")
         putStrLn ("Abstract Value Context: " ++ show (inferContext decs stmt))
         putStrLn ("Dual ST: " ++ stmtToST (dual stmt))  
         putStrLn ("Variables: " ++ show decs ++ "\n")
@@ -57,7 +57,7 @@ main = do
       Left err -> putStrLn $ errorBundlePretty err
       Right (Program decs stmt)  -> do
         putStrLn $ "Parsed Statement:\n" ++ input5
-        putStrLn ("Session Type: " ++ stmtToST stmt ++ "\n")
+        putStrLn ("Session Type: " ++ stmtToST' (inferContext decs stmt) stmt ++ "\n")
         putStrLn ("Abstract Value Context: " ++ show (inferContext decs stmt))
         putStrLn ("Dual ST: " ++ stmtToST (dual stmt))  
         putStrLn ("Variables: " ++ show decs ++ "\n")
@@ -66,7 +66,16 @@ main = do
       Left err -> putStrLn $ errorBundlePretty err
       Right (Program decs stmt)  -> do
         putStrLn $ "Parsed Statement:\n" ++ input6
-        putStrLn ("Session Type: " ++ stmtToST stmt ++ "\n")
+        putStrLn ("Session Type: " ++ stmtToST' (inferContext decs stmt) stmt ++ "\n")
         putStrLn ("Abstract Value Context: " ++ show (inferContext decs stmt))
         putStrLn ("Dual ST: " ++ stmtToST (dual stmt))  
         putStrLn ("Variables: " ++ show decs ++ "\n")
+    let input7 = "var i int\nvar x int\nvar y int\nvar c chan int\ni := 0\nx := i + 1\ny := x\nif (y>0) then c <- 2*x else skip"
+    case runParser parseProgram "" input7 of
+      Left err -> putStrLn $ errorBundlePretty err 
+      Right (Program decs stmt) -> do 
+        putStrLn $ "Parsed Statement:\n" ++ input7
+        putStrLn ("Session Type: " ++ stmtToST' (inferContext decs stmt) stmt ++ "\n")
+        putStrLn ("Abstract Value Context: " ++ show (inferContext decs stmt))
+        putStrLn ("Dual ST: " ++ stmtToST (dual stmt))  
+        putStrLn ("Variables: " ++ show decs ++ "\n")       
