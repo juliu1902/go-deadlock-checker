@@ -140,45 +140,34 @@ inferContext decs stmt = inferStmt (freshInitialContext (initialContext decs)) s
     Assign var x -> updateOneAV var (ATerm x) ctxt
     If cond s1 s2 -> mergeIfContexts cond (inferStmt ctxt s1) (inferStmt ctxt s2)
 
--- representing the parsed Statement as a Session Type
-stmtToST :: Statement -> String
-stmtToST x = case x of
-    New (VarName c) s         -> "new " ++ c ++ "." ++ stmtToST s
-    Skip                        -> "skip"
-    Send (VarName ch)         -> ch ++ "!"
-    Receive (VarName ch)      -> ch ++ "?"
-    End (VarName ch)          -> ch ++ "#"
-    Sequence s1 s2 ->
-      let a = stmtToST s1
-          b = stmtToST s2
-      -- assignments werden nicht mit ; getrennt sondern ignoriert
-      in case (null a, null b) of
-        (True,  True)  -> ""
-        (True,  False) -> b
-        (False, True)  -> a
-        (False, False) -> a ++ ";" ++ b
-    If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
-    If e s1 s2     -> block s1 ++ " if " ++ show e ++ " else " ++ block s2
-    Go s1 s2       -> "go" ++ "{" ++ stmtToST s1 ++ "}" ++ "{" ++ stmtToST s2 ++ "}"
-    Assign _ _     -> ""
-    For (ForHeaderRunning var start e incdec) s -> "for " ++ "(" ++ show var ++ "=" ++ show start ++ ";" ++ show e ++ ";" ++ show var ++ show incdec ++ ") " ++ block s
-    For (ForHeaderRange var chan) s -> "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
-    where 
-        block :: Statement -> String
-        block st@(Sequence _ _) = "{" ++ stmtToST st ++ "}"
-        block st = stmtToST st
+
+-- WICHTIG TODO: 
+-- var c1 chan int
+-- var c2 chan int
+-- var c chan int
+-- c1 ::= make (chan int)
+-- c2 ::= make (chan int)
+-- if b then { c = c1 } else { c = c2 }
+-- Session Type: new c1.new c2.
+-- 
+-- Abstract Value Context: fromList [(c,(TChan CInt,Aif b (Achan (ChannelID "c1")) (Achan (ChannelID "c2")))),(c1,(TChan CInt,Achan (ChannelID "c1"))),(c2,(TChan CInt,Achan (ChannelID "c2")))]
+-- Variables: [("c1",TChan CInt),("c2",TChan CInt),("c",TChan CInt)]
+-- 
+-- >>> Ok, das ist fast genau das, was rauskommen sollte!
+-- >>> Wenn danach eine Schreiboperation auf c kommt, dann wird daraus `if b then c1! else c2!`.
+-- das if b then c1! else c2! passiert noch nicht!
 
 -- representing the parsed Statement as a Session Type
-stmtToST' :: Context -> Statement -> String
-stmtToST' ctxt x = case x of
-    New (VarName c) s         -> "new " ++ c ++ "." ++ stmtToST' ctxt s
+stmtToST :: Context -> Statement -> String
+stmtToST ctxt x = case x of
+    New (VarName c) s         -> "new " ++ c ++ "." ++ stmtToST ctxt s
     Skip                        -> "skip"
     Send (VarName ch)         -> ch ++ "!"
     Receive (VarName ch)      -> ch ++ "?"
     End (VarName ch)          -> ch ++ "#"
     Sequence s1 s2 ->
-      let a = stmtToST' ctxt s1
-          b = stmtToST' ctxt s2
+      let a = stmtToST ctxt s1
+          b = stmtToST ctxt s2
       -- assignments werden nicht mit ; getrennt sondern ignoriert
       in case (null a, null b) of
         (True,  True)  -> ""
@@ -187,14 +176,14 @@ stmtToST' ctxt x = case x of
         (False, False) -> a ++ ";" ++ b
     If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
     If e s1 s2     -> block s1 ++ " if " ++ show (evaluateExpr ctxt e) ++ " else " ++ block s2
-    Go s1 s2       -> "go" ++ "{" ++ stmtToST' ctxt s1 ++ "}" ++ "{" ++ stmtToST' ctxt s2 ++ "}"
+    Go s1 s2       -> "go" ++ "{" ++ stmtToST ctxt s1 ++ "}" ++ "{" ++ stmtToST ctxt s2 ++ "}"
     Assign _ _     -> ""
     For (ForHeaderRunning var start e incdec) s -> "for " ++ "(" ++ show var ++ "=" ++ show start ++ ";" ++ show (evaluateExpr ctxt e) ++ ";" ++ show var ++ show incdec ++ ") " ++ block s
     For (ForHeaderRange var chan) s -> "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
     where 
         block :: Statement -> String
-        block st@(Sequence _ _) = "{" ++ stmtToST' ctxt st ++ "}"
-        block st = stmtToST' ctxt st
+        block st@(Sequence _ _) = "{" ++ stmtToST ctxt st ++ "}"
+        block st = stmtToST ctxt st
 
 -- flips the directions of all communications
 dual :: Statement -> Statement
@@ -208,7 +197,6 @@ dual (Go s1 s2) = Go (dual s1) (dual s2)
 -- Assign, Skip End bleiben unverändert
 dual x = x
 
-
 -- substitutes all variables in an expression with a context
 evaluateExpr :: Context -> Expr -> Expr 
 evaluateExpr ctxt (EVar x) = case (Map.lookup x ctxt) of
@@ -217,3 +205,39 @@ evaluateExpr ctxt (EVar x) = case (Map.lookup x ctxt) of
 evaluateExpr ctxt (EBinOp op e1 e2) = EBinOp op (evaluateExpr ctxt e1) (evaluateExpr ctxt e2)
 -- float int bool unverändert
 evaluateExpr ctxt x = x
+
+-- go, for, new -> skip
+strip :: Statement -> Statement
+strip (Go s1 s2) = Skip 
+strip (For head s1) = Skip
+strip (New var s) = strip s
+strip (Assign var e) = Skip
+strip (Sequence s1 s2) = Sequence (strip s1) (strip s2)
+-- Rest bleibt so wie es ist
+strip x = x
+
+
+assocRule :: Statement -> Statement 
+assocRule (Sequence (Sequence s1 s2) s3) = Sequence s1 (Sequence s2 s3)
+assocRule x = x
+
+idRules :: Statement -> Statement
+idRules (Sequence (Skip) s) = s
+idRules (Sequence s (Skip)) = s
+idRules x = x
+-- idFor nicht nötig, for wird durch strip zu skip
+
+condEta :: Statement -> Statement
+condEta (If _ s s) = s 
+
+condDist :: Statement -> Statement 
+condDist (Sequence (If e s1 s2) s) = If e (Sequence s1 s) (Sequence s2 s)
+condDist x = x
+
+-- normalizeST :: Statement -> Statement
+-- wendet assoc, id, condeta an bis nichts mehr geht
+-- wendet dann conddist an und danach  wieder assoc,id,condeta
+
+-- checkEquivalenceNF :: Statement -> Statement -> Bool
+-- Gleichheitstest: wendet atom, cond oder comp regel an auf beide STs 
+-- und checkt ob sie gleich sind
