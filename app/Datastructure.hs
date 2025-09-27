@@ -1,19 +1,19 @@
 module Datastructure where  
-import qualified Data.Map as Map (Map, fromList, lookup, insert, lookupMin, deleteMin, empty, map, delete)
+import qualified Data.List as List
+import qualified Data.Map as Map (Map, fromList, lookup, insert, lookupMin, deleteMin, empty, map, delete, toList)
 import Control.Monad.State
 import Control.Monad(replicateM)
-data Statement = New VarName Statement | Skip | Send VarName | Receive VarName | End VarName | Sequence Statement Statement | If Expr Statement Statement | For ForHeader Statement | Assign VarName Expr | Go Statement Statement deriving (Show)
+data Statement = New VarName Statement | Skip | Send VarName | Receive VarName | End VarName | Sequence Statement Statement | If Expr Statement Statement | For ForHeader Statement | Assign VarName Expr | Go Statement Statement deriving (Show, Eq)
 -- new types for variable assignments and the list of variable declarations
 newtype VarName = VarName String deriving (Eq, Ord)
 newtype ChannelID = ChannelID String deriving (Show, Eq) -- type or newtype tbd
 type FreshM = State Int -- State Int Monad for unique channelID naming
-data ForHeader = ForHeaderRunning VarName Int Expr IncDec | ForHeaderRange VarName VarName deriving (Show) 
-data IncDec = Inc | Dec
+data ForHeader = ForHeaderRunning VarName Int Expr IncDec | ForHeaderRange VarName VarName deriving (Show, Eq) 
+data IncDec = Inc | Dec deriving (Eq)
 
 instance Show (IncDec) where
   show Inc = "++"
   show Dec = "--"
-
 
 data ChanType = CInt | CBool deriving (Show)
 data VarType = TInt | TBool | TChan ChanType deriving (Show)
@@ -65,6 +65,51 @@ instance Show BinOp where
     And -> "&&"
     Or  -> "||"
 
+-- evaluates conditions and considers the context when there is a send/receive
+stmtToST :: Context -> Statement -> Statement
+stmtToST ctxt st = case st of
+  New c s -> New c (stmtToST ctxt s)
+  Sequence s1 s2 -> Sequence (stmtToST ctxt s1) (stmtToST ctxt s2)
+  If e s1 s2 -> If (evaluateExpr ctxt e) (stmtToST ctxt s1) (stmtToST ctxt s2)
+  Send var -> setInContext "send" var
+  Receive var -> setInContext "recv" var
+  x -> x
+  where
+    setInContext :: String -> VarName -> Statement
+    setInContext mode v =
+      case lookupAV v ctxt of
+        AIf cond (AChan c1) (AChan c2) -> if c1 == c2 then setInContext mode (head (lookupVarNamesForChannel c1 ctxt)) else If (evaluateExpr ctxt cond) (if mode == "send" then Send (head (lookupVarNamesForChannel c1 ctxt)) else Receive (head (lookupVarNamesForChannel c1 ctxt))) (if mode == "send" then Send (head (lookupVarNamesForChannel c2 ctxt)) else Receive (head(lookupVarNamesForChannel c2 ctxt)))
+        AIf cond av1 av2 -> if mode == "send" then Send v else Receive v
+        _ -> if mode == "send" then Send v else Receive v
+
+-- representing a parsed Statement as a Session Type, optionally used after stmtToST!
+prettyPrintST :: Statement -> String
+prettyPrintST x = case x of
+    New (VarName c) s         -> "new " ++ c ++ "." ++ prettyPrintST s
+    Skip                        -> "skip"
+    Send (VarName ch)         -> ch ++ "!"
+    Receive (VarName ch)      -> ch ++ "?"
+    End (VarName ch)          -> ch ++ "#"
+    Sequence s1 s2 ->
+      let a = prettyPrintST s1
+          b = prettyPrintST s2
+      -- assignments werden nicht mit ; getrennt sondern ignoriert
+      in case (null a, null b) of
+        (True,  True)  -> ""
+        (True,  False) -> b
+        (False, True)  -> a
+        (False, False) -> a ++ ";" ++ b
+    If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
+    If e s1 s2     -> block s1 ++ " if " ++ show e ++ " else " ++ block s2
+    Go s1 s2       -> "go" ++ "{" ++ prettyPrintST s1 ++ "}" ++ "{" ++ prettyPrintST s2 ++ "}"
+    Assign _ _     -> ""
+    For (ForHeaderRunning var start e incdec) s -> "for " ++ "(" ++ show var ++ "=" ++ show start ++ ";" ++ show e ++ ";" ++ show var ++ show incdec ++ ") " ++ block s
+    For (ForHeaderRange var chan) s -> "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
+    where 
+        block :: Statement -> String
+        block st@(Sequence _ _) = "{" ++ prettyPrintST st ++ "}"
+        block st = prettyPrintST st
+
 -- generates the unique channelID names 
 freshChannel :: FreshM ChannelID
 freshChannel = do
@@ -91,10 +136,13 @@ freshInitialContext initialc = evalState (traverse freshOne initialc) 0 where --
 -- finds vartype of a variable
 lookupType :: VarName -> Context -> Maybe VarType
 lookupType x ctxt = fmap fst (Map.lookup x ctxt)
--- -- finds AV of a variable
+-- finds AV of a variable
 lookupAV :: VarName -> Context -> AbstractVal
 lookupAV x ctxt = maybe AUnknown snd (Map.lookup x ctxt)
 
+-- returns variable that points to a specific channelID
+lookupVarNamesForChannel :: ChannelID -> Context -> [VarName]
+lookupVarNamesForChannel ch ctxt = [ var | (var, (_, AChan ch')) <- Map.toList ctxt, ch == ch']
 -- writes one AbstractVal-update in current ctxt
 updateOneAV :: VarName -> AbstractVal -> Context -> Context
 updateOneAV x av ctxt = case Map.lookup x ctxt of
@@ -125,7 +173,7 @@ inferContext :: VarDecs -> Statement -> Context
 inferContext decs stmt = inferStmt (freshInitialContext (initialContext decs)) stmt  where -- evalState :: State s a -> s -> a, 0 is our starting state s, a Context will be returned (-> a)
   inferStmt :: Context -> Statement -> Context
   inferStmt ctxt st = case st of
-    New _ _   -> ctxt
+    New _ s   -> inferStmt ctxt s
     Send _    -> ctxt
     Go  _ _   -> ctxt
     Skip      -> ctxt
@@ -140,56 +188,11 @@ inferContext decs stmt = inferStmt (freshInitialContext (initialContext decs)) s
     Assign var x -> updateOneAV var (ATerm x) ctxt
     If cond s1 s2 -> mergeIfContexts cond (inferStmt ctxt s1) (inferStmt ctxt s2)
 
-
--- WICHTIG TODO: 
--- var c1 chan int
--- var c2 chan int
--- var c chan int
--- c1 ::= make (chan int)
--- c2 ::= make (chan int)
--- if b then { c = c1 } else { c = c2 }
--- Session Type: new c1.new c2.
--- 
--- Abstract Value Context: fromList [(c,(TChan CInt,Aif b (Achan (ChannelID "c1")) (Achan (ChannelID "c2")))),(c1,(TChan CInt,Achan (ChannelID "c1"))),(c2,(TChan CInt,Achan (ChannelID "c2")))]
--- Variables: [("c1",TChan CInt),("c2",TChan CInt),("c",TChan CInt)]
--- 
--- >>> Ok, das ist fast genau das, was rauskommen sollte!
--- >>> Wenn danach eine Schreiboperation auf c kommt, dann wird daraus `if b then c1! else c2!`.
--- das if b then c1! else c2! passiert noch nicht!
-
--- representing the parsed Statement as a Session Type
-stmtToST :: Context -> Statement -> String
-stmtToST ctxt x = case x of
-    New (VarName c) s         -> "new " ++ c ++ "." ++ stmtToST ctxt s
-    Skip                        -> "skip"
-    Send (VarName ch)         -> ch ++ "!"
-    Receive (VarName ch)      -> ch ++ "?"
-    End (VarName ch)          -> ch ++ "#"
-    Sequence s1 s2 ->
-      let a = stmtToST ctxt s1
-          b = stmtToST ctxt s2
-      -- assignments werden nicht mit ; getrennt sondern ignoriert
-      in case (null a, null b) of
-        (True,  True)  -> ""
-        (True,  False) -> b
-        (False, True)  -> a
-        (False, False) -> a ++ ";" ++ b
-    If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
-    If e s1 s2     -> block s1 ++ " if " ++ show (evaluateExpr ctxt e) ++ " else " ++ block s2
-    Go s1 s2       -> "go" ++ "{" ++ stmtToST ctxt s1 ++ "}" ++ "{" ++ stmtToST ctxt s2 ++ "}"
-    Assign _ _     -> ""
-    For (ForHeaderRunning var start e incdec) s -> "for " ++ "(" ++ show var ++ "=" ++ show start ++ ";" ++ show (evaluateExpr ctxt e) ++ ";" ++ show var ++ show incdec ++ ") " ++ block s
-    For (ForHeaderRange var chan) s -> "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
-    where 
-        block :: Statement -> String
-        block st@(Sequence _ _) = "{" ++ stmtToST ctxt st ++ "}"
-        block st = stmtToST ctxt st
-
 -- flips the directions of all communications
 dual :: Statement -> Statement
 dual (Send var) = Receive var
 dual (Receive var) = Send var 
-dual (New var s) = New var (dual s)
+dual (New var s) = New var (dual s) 
 dual (Sequence s1 s2) = Sequence (dual s1) (dual s2)
 dual (If e s1 s2) = If e (dual s1) (dual s2)
 dual (For head s) = For head (dual s)
@@ -216,28 +219,59 @@ strip (Sequence s1 s2) = Sequence (strip s1) (strip s2)
 -- Rest bleibt so wie es ist
 strip x = x
 
-
-assocRule :: Statement -> Statement 
-assocRule (Sequence (Sequence s1 s2) s3) = Sequence s1 (Sequence s2 s3)
-assocRule x = x
-
-idRules :: Statement -> Statement
-idRules (Sequence (Skip) s) = s
-idRules (Sequence s (Skip)) = s
-idRules x = x
+assocIdRules :: Statement -> Statement
+assocIdRules (Sequence (Skip) s) = s
+assocIdRules (Sequence s (Skip)) = s
+assocIdRules (Sequence (Sequence s1 s2) s3) = Sequence s1 (Sequence s2 s3)
+assocIdRules x = x
 -- idFor nicht nötig, for wird durch strip zu skip
 
 condEta :: Statement -> Statement
-condEta (If _ s s) = s 
+condEta (If e s1 s2) = if s1 == s2 then s1 else (If e s1 s2)
+condEta x = x
+
+-- assoc, id, condeta is applied once on all "nodes"
+applyFirstLevel :: Statement -> Statement 
+applyFirstLevel stmt = case stmt of
+  Sequence s1 s2 -> assocIdRules (Sequence (applyFirstLevel s1) (applyFirstLevel s2))
+  If e s1 s2 -> condEta (If e (applyFirstLevel s1) (applyFirstLevel s2))
+  _ -> stmt
+
+-- applies a rule until it doesn't change the input anymore
+repeatApply :: (Statement -> Statement) -> Statement -> Statement
+repeatApply f stmt = if (f stmt) == stmt then stmt else repeatApply f stmt
+
+phaseA :: Statement -> Statement
+phaseA stmt = repeatApply applyFirstLevel stmt
 
 condDist :: Statement -> Statement 
 condDist (Sequence (If e s1 s2) s) = If e (Sequence s1 s) (Sequence s2 s)
 condDist x = x
 
--- normalizeST :: Statement -> Statement
--- wendet assoc, id, condeta an bis nichts mehr geht
--- wendet dann conddist an und danach  wieder assoc,id,condeta
+-- apply conddist once on all "nodes"
+applySecondLevel :: Statement -> Statement
+applySecondLevel stmt = case stmt of
+  Sequence s1 s2 -> condDist (Sequence (applySecondLevel s1) (applySecondLevel s2))
+  If e s1 s2 -> If e (applySecondLevel s1) (applySecondLevel s2)
+  _ -> stmt 
 
--- checkEquivalenceNF :: Statement -> Statement -> Bool
--- Gleichheitstest: wendet atom, cond oder comp regel an auf beide STs 
--- und checkt ob sie gleich sind
+normalizeST :: Statement -> Statement
+normalizeST stmt = normalize (strip stmt) where 
+  normalize stmt =
+    let stmtA = phaseA stmt -- Sie wenden die assoc, die id-Regeln und cond-eta so lange an, bis nichts mehr geht.     
+        stmtB = applySecondLevel stmtA  
+    in if (stmtA == stmtB)  -- ändert condDist unseren ST?
+      then stmtA               -- Nein, dann keine Regel mehr anwendbar
+      else normalize stmtB  -- Ja, dann einmal cond-dist und wieder assoc, id, cond-eta usw bis keine dieser Regeln mehr anwendbar ist
+
+testEquivalence :: Statement -> Statement -> Bool
+testEquivalence s t = case (s, t) of
+  (Send x,    Send y)      -> x == y -- atom-send
+  (Receive x, Receive y)   -> x == y -- atom-recv
+  (End x,     End y)       -> x == y -- atom-end
+  -- comp-rule s1 ~ s2 /\ s3 ~ s4 => s1; s3 ~ s2; s4
+  (Sequence s1 s3, Sequence s2 s4) -> testEquivalence s1 s2 && testEquivalence s3 s4
+  -- cond-rule s1 ~ s2 /\ s3 ~ s4 => if (e) {s1}{ s3} ~ if (e) {s2}{ s4}
+  (If e s1 s3, If e' s2 s4) -> e == e' && testEquivalence s1 s2 && testEquivalence s3 s4
+  -- else false
+  _ -> False
