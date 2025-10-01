@@ -66,27 +66,66 @@ instance Show BinOp where
     Or  -> "||"
 
 -- evaluates conditions and considers the context when there is a send/receive
-stmtToST :: Context -> Statement -> Statement
-stmtToST ctxt st = case st of
-  New c s -> New c (stmtToST ctxt s)
-  Sequence s1 s2 -> Sequence (stmtToST ctxt s1) (stmtToST ctxt s2)
-  If e s1 s2 -> If (evaluateExpr ctxt e) (stmtToST ctxt s1) (stmtToST ctxt s2)
-  Send var -> setInContext "send" var
-  Receive var -> setInContext "recv" var
-  x -> x
-  where
-    setInContext :: String -> VarName -> Statement
-    setInContext mode v =
-      case lookupAV v ctxt of
-        AIf cond (AChan c1) (AChan c2) -> if c1 == c2 then setInContext mode (head (lookupVarNamesForChannel c1 ctxt)) else If (evaluateExpr ctxt cond) (if mode == "send" then Send (head (lookupVarNamesForChannel c1 ctxt)) else Receive (head (lookupVarNamesForChannel c1 ctxt))) (if mode == "send" then Send (head (lookupVarNamesForChannel c2 ctxt)) else Receive (head(lookupVarNamesForChannel c2 ctxt)))
-        AIf cond av1 av2 -> if mode == "send" then Send v else Receive v
-        _ -> if mode == "send" then Send v else Receive v
+stmtToST :: Context -> Statement -> (Statement, Context)
+stmtToST ctxt0 st0 = stmtToSTHelper ctxt0 st0 where
+  stmtToSTHelper :: Context -> Statement -> (Statement, Context)
+  stmtToSTHelper ctxt st = case st of
+    New c s ->
+      let (s', ctxt') = stmtToSTHelper ctxt s
+      in (New c s', ctxt')
+    Sequence s1 s2 ->
+      let (s1', ctxt1) = stmtToSTHelper ctxt s1
+          (s2', ctxt2) = stmtToSTHelper ctxt1 s2
+      in (Sequence s1' s2', ctxt2)
+    If e s1 s2 ->
+      let e' = evaluateExpr ctxt e
+          (s1', ctxt1) = stmtToSTHelper ctxt s1
+          (s2', ctxt2) = stmtToSTHelper ctxt s2
+          ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
+      in (If e' s1' s2', ctxtMerged)
+
+    Assign var (EVar x) ->
+      (Assign var (EVar x), updateOneAV var (ATerm (EVar x)) ctxt)
+    Assign var expr ->
+      (Assign var expr, updateOneAV var (ATerm expr) ctxt)
+    Send v ->
+      (setInContext "send" ctxt v, ctxt)
+    Receive v ->
+      (setInContext "recv" ctxt v, ctxt)
+    Go s1 s2 ->
+      let (s1', ctxt1) = stmtToSTHelper ctxt s1
+          (s2', ctxt2) = stmtToSTHelper ctxt s2
+      in (Go s1' s2', ctxt2)
+    For hdr s ->
+      let (s', ctxt') = stmtToSTHelper ctxt s
+      in (For hdr s', ctxt')
+    _ -> (st, ctxt)
+
+--  where does the VarName come from (what's "inside")
+-- used for "Send v"/"Receive v" to trace
+setInContext :: String -> Context -> VarName -> Statement
+setInContext mode ctxt v =
+  case lookupAV v ctxt of
+    AIf cond (AChan c1) (AChan c2) ->
+      let act m ch = if m == "send" then Send ch else Receive ch in
+        if c1 == c2
+          then act mode v          
+          else
+            let ch1 = head (lookupVarNamesForChannel c1 ctxt)
+                ch2 = head (lookupVarNamesForChannel c2 ctxt)
+            in If (evaluateExpr ctxt cond) (act mode ch1) (act mode ch2)
+    ATerm e -> -- trace what v points at if it is a basic variable assignment
+      case evaluateExpr ctxt e of
+        EVar y -> if mode == "send" then Send y else Receive y 
+        _      -> if mode == "send" then Send v else Receive v
+    -- Fallback
+    _ -> if mode == "send" then Send v else Receive v
 
 -- representing a parsed Statement as a Session Type, optionally used after stmtToST!
 prettyPrintST :: Statement -> String
 prettyPrintST x = case x of
     New (VarName c) s         -> "new " ++ c ++ "." ++ prettyPrintST s
-    Skip                        -> "skip"
+    Skip                      -> "skip"
     Send (VarName ch)         -> ch ++ "!"
     Receive (VarName ch)      -> ch ++ "?"
     End (VarName ch)          -> ch ++ "#"
@@ -120,11 +159,12 @@ freshChannel = do
 -- in the beginning all the Abstract Values are unknown
 initialContext :: VarDecs -> Context
 initialContext decs = Map.fromList [ ((x), (y, AUnknown)) | (x, y) <- decs]
--- except for the channel type annotations in the beginning
+
+-- except for the channel type annotations in the beginning:
 -- var chan int/bool should automatically create fresh channels with unique channelID
 freshInitialContext :: Context -> Context
-freshInitialContext initialc = evalState (traverse freshOne initialc) 0 where -- traverse :: (Traversable t, Applicative f) => (a -> f b) -> t a -> f (t b)
-  freshOne :: (VarType, AbstractVal) -> FreshM (VarType, AbstractVal)                      --                                               freshOne     ctxt    FreshM (VarType, AbstractVal)
+freshInitialContext initialc = evalState (traverse freshOne initialc) 0 where
+  freshOne :: (VarType, AbstractVal) -> FreshM (VarType, AbstractVal)
   freshOne (t, av) = do
     case t of
       TChan x -> do
@@ -136,13 +176,17 @@ freshInitialContext initialc = evalState (traverse freshOne initialc) 0 where --
 -- finds vartype of a variable
 lookupType :: VarName -> Context -> Maybe VarType
 lookupType x ctxt = fmap fst (Map.lookup x ctxt)
+
 -- finds AV of a variable
 lookupAV :: VarName -> Context -> AbstractVal
 lookupAV x ctxt = maybe AUnknown snd (Map.lookup x ctxt)
 
--- returns variable that points to a specific channelID
+-- returns variable that points to a specific channelID, 
+-- based on how VarNames with ChannelIDs are handled,
+-- it should only be one variable at max, although it returns a list!
 lookupVarNamesForChannel :: ChannelID -> Context -> [VarName]
 lookupVarNamesForChannel ch ctxt = [ var | (var, (_, AChan ch')) <- Map.toList ctxt, ch == ch']
+
 -- writes one AbstractVal-update in current ctxt
 updateOneAV :: VarName -> AbstractVal -> Context -> Context
 updateOneAV x av ctxt = case Map.lookup x ctxt of
@@ -165,28 +209,6 @@ mergeIfContexts cond c1 c2 = case Map.lookupMin c1 of
       abstractEq (ATerm e1) (ATerm e2) = e1 == e2
       abstractEq AUnknown AUnknown = True
       abstractEq _ _ = False
-
-
--- takes the variable declarations and the parsed statement and 
--- extracts all abstract values out of the program
-inferContext :: VarDecs -> Statement -> Context
-inferContext decs stmt = inferStmt (freshInitialContext (initialContext decs)) stmt  where -- evalState :: State s a -> s -> a, 0 is our starting state s, a Context will be returned (-> a)
-  inferStmt :: Context -> Statement -> Context
-  inferStmt ctxt st = case st of
-    New _ s   -> inferStmt ctxt s
-    Send _    -> ctxt
-    Go  _ _   -> ctxt
-    Skip      -> ctxt
-    End _     -> ctxt
-    Receive _ -> ctxt
-    For _ _   -> ctxt
-
-    Sequence s1 s2 -> inferStmt (inferStmt ctxt s1) s2
-    Assign var (EVar x) -> case lookupType x ctxt of
-      Just (TChan y) -> (updateOneAV (var) (lookupAV x ctxt) ctxt) -- var = x -> var needs to have the AV of x if x exists in ctxt, else AUnknown
-      _ -> (updateOneAV var (ATerm (EVar x)) ctxt) -- var = x und x ist int oder bool, definitiv kein Kanal
-    Assign var x -> updateOneAV var (ATerm x) ctxt
-    If cond s1 s2 -> mergeIfContexts cond (inferStmt ctxt s1) (inferStmt ctxt s2)
 
 -- flips the directions of all communications
 dual :: Statement -> Statement
@@ -216,7 +238,6 @@ strip (For head s1) = Skip
 strip (New var s) = strip s
 strip (Assign var e) = Skip
 strip (Sequence s1 s2) = Sequence (strip s1) (strip s2)
--- Rest bleibt so wie es ist
 strip x = x
 
 assocIdRules :: Statement -> Statement
@@ -224,7 +245,7 @@ assocIdRules (Sequence (Skip) s) = s
 assocIdRules (Sequence s (Skip)) = s
 assocIdRules (Sequence (Sequence s1 s2) s3) = Sequence s1 (Sequence s2 s3)
 assocIdRules x = x
--- idFor nicht nötig, for wird durch strip zu skip
+-- idFor not necessary, becomes skip by calling strip function
 
 condEta :: Statement -> Statement
 condEta (If e s1 s2) = if s1 == s2 then s1 else (If e s1 s2)
@@ -239,7 +260,7 @@ applyFirstLevel stmt = case stmt of
 
 -- applies a rule until it doesn't change the input anymore
 repeatApply :: (Statement -> Statement) -> Statement -> Statement
-repeatApply f stmt = if (f stmt) == stmt then stmt else repeatApply f stmt
+repeatApply f stmt = if (f stmt) == stmt then stmt else repeatApply f (f stmt)
 
 phaseA :: Statement -> Statement
 phaseA stmt = repeatApply applyFirstLevel stmt
@@ -258,12 +279,13 @@ applySecondLevel stmt = case stmt of
 normalizeST :: Statement -> Statement
 normalizeST stmt = normalize (strip stmt) where 
   normalize stmt =
-    let stmtA = phaseA stmt -- Sie wenden die assoc, die id-Regeln und cond-eta so lange an, bis nichts mehr geht.     
+    let stmtA = phaseA stmt -- "Sie wenden die assoc, die id-Regeln und cond-eta so lange an, bis nichts mehr geht.     
         stmtB = applySecondLevel stmtA  
     in if (stmtA == stmtB)  -- ändert condDist unseren ST?
       then stmtA               -- Nein, dann keine Regel mehr anwendbar
-      else normalize stmtB  -- Ja, dann einmal cond-dist und wieder assoc, id, cond-eta usw bis keine dieser Regeln mehr anwendbar ist
+      else normalize stmtB  -- Ja, dann einmal cond-dist und wieder assoc, id, cond-eta usw bis keine dieser Regeln mehr anwendbar ist"
 
+-- can test the equivalence of two normalized Statements!
 testEquivalence :: Statement -> Statement -> Bool
 testEquivalence s t = case (s, t) of
   (Send x,    Send y)      -> x == y -- atom-send

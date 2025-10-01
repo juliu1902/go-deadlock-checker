@@ -224,11 +224,11 @@ parseIf = do
     spaceConsumer
     _ <- string "then"
     spaceConsumer
-    a <- parseSequence <|> parseSingleStatement
+    a <- try parseSequence <|> parseSingleStatement
     spaceConsumer
     _ <- string "else"
     spaceConsumer
-    b <- parseSequence <|> parseSingleStatement
+    b <- try parseSequence <|> parseSingleStatement
     return (If cond a b)
 
 -- For ForHeader Statement
