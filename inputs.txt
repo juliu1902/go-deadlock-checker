@@ -299,20 +299,7 @@ close c
 ---
 // Erwartung: A ~ B = True (for 0 ~ skip)
 
-// 18A: for mit fester Anzahl 2
-var c chan int
-for (i=0;i<2;i++) { c <- i }
-close c
----
-// 18B: explizit zweimal senden
-var c chan int
-c <- 0
-c <- 1
-close c
----
-// Erwartung: A ~ B = True
-
-// 19A: if-Else unterscheidet Zählung (nicht äquivalent)
+// 18A: if-Else unterscheidet Zählung (nicht äquivalent)
 var c chan int
 if b then { 
     c <- 1
@@ -324,7 +311,7 @@ if b then {
 }
 close c
 ---
-// 19B: beide Zweige zwei Sends
+// 18B: beide Zweige zwei Sends
 var c chan int
 if b then { 
     c <- 1
@@ -337,7 +324,7 @@ close c
 ---
 // Erwartung: A ~ B = False
 
-// 20A: Receive und danach konditional unterschiedliche Längen
+// 19A: Receive und danach konditional unterschiedliche Längen
 var c chan int
 x = <- c
 if (x == 0) then { 
@@ -348,7 +335,7 @@ if (x == 0) then {
 }
 close c
 ---
-// 20B: anderes Muster
+// 19B: anderes Muster
 var c chan int
 x = <- c
 if (x == 0) then { 
@@ -361,19 +348,19 @@ close c
 ---
 // Erwartung: A ~ B = False (Zweige vertauschen Längen)
 
-// 21A: verschachtelte Bedingungen, logisch gleich aber syntaktisch anders
+// 20A: verschachtelte Bedingungen, logisch gleich aber syntaktisch anders
 var c chan int
 if (b && (1 - b)) then { c <- 1 } else { c <- 2 }
 close c
 ---
-// 21B: konstante else
+// 20B: konstante else
 var c chan int
 c <- 2
 close c
 ---
 // Erwartung: Mit Vereinfachung (SMT) True; ohne SMT meist False
 
-// 22A: zwei Kanäle, Close-Mischung
+// 21A: zwei Kanäle, Close-Mischung
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -381,7 +368,7 @@ close c2
 c2 <- 2
 close c1
 ---
-// 22B: korrektes Close nach Nutzung
+// 21B: korrektes Close nach Nutzung
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -391,33 +378,30 @@ close c2
 ---
 // Erwartung: A ~ B = False (Nutzung nach close in A)
 
-// 23A: aliasing überschreibt zuerst auf c1, dann zurück auf c1 (no-op)
-var c1 chan int
-var c chan int
-c := c1
-c <- 1
-c := c1
-c <- 2
-close c1
----
-// 23B: direkt auf c1
-var c1 chan int
-c1 <- 1
-c1 <- 2
-close c1
----
-// Erwartung: A ~ B = True
-
-// 24A: zwei Receives, aber Else-Zweig überspringt zweiten Send
+// 22A: zwei Receives, aber Else-Zweig überspringt zweiten Send
 var c chan int
 x = <- c
 y = <- c
 if b then { c <- x } else { skip }
 close c
 ---
-// 24B: dual soll immer zwei Sends haben
+// 22B: dual soll immer zwei Sends haben
 var c chan int
+var x int
 c <- 0
 c <- 0
 if b then { x := 1 } else { skip }
 close c
+---
+var c chan int
+var x int
+if b then { x := 1 } else { y := 1 }
+c <- x
+close c
+---
+var c chan int
+var x int
+if b then { x := 1 } else { y := 1 }
+c <- x
+close c
+

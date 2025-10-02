@@ -83,7 +83,6 @@ stmtToST ctxt0 st0 = stmtToSTHelper ctxt0 st0 where
           (s2', ctxt2) = stmtToSTHelper ctxt s2
           ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
       in (If e' s1' s2', ctxtMerged)
-
     Assign var (EVar x) ->
       (Assign var (EVar x), updateOneAV var (ATerm (EVar x)) ctxt)
     Assign var expr ->
@@ -139,6 +138,12 @@ prettyPrintST x = case x of
         (False, True)  -> a
         (False, False) -> a ++ ";" ++ b
     If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
+    If e s Skip -> case onlyAssigns s of
+      True -> ""
+      _ -> block s ++ " if " ++ show e ++ " else " ++ "skip"
+    If e Skip s -> case onlyAssigns s of
+      True -> ""
+      _ -> "skip" ++ " if " ++ show e ++ " else " ++ block s
     If e s1 s2     -> block s1 ++ " if " ++ show e ++ " else " ++ block s2
     Go s1 s2       -> "go" ++ "{" ++ prettyPrintST s1 ++ "}" ++ "{" ++ prettyPrintST s2 ++ "}"
     Assign _ _     -> ""
@@ -147,7 +152,14 @@ prettyPrintST x = case x of
     where 
         block :: Statement -> String
         block st@(Sequence _ _) = "{" ++ prettyPrintST st ++ "}"
+        block st@(If _ _ _) = "{" ++ prettyPrintST st ++ "}"
         block st = prettyPrintST st
+
+onlyAssigns :: Statement -> Bool
+onlyAssigns (Sequence s1 s2) = (onlyAssigns s1) && (onlyAssigns s2)
+onlyAssigns (Assign _ _) = True
+onlyAssigns Skip = True -- Skip verändert nichts
+onlyAssigns _ = False
 
 -- generates the unique channelID names 
 freshChannel :: FreshM ChannelID
@@ -231,13 +243,17 @@ evaluateExpr ctxt (EBinOp op e1 e2) = EBinOp op (evaluateExpr ctxt e1) (evaluate
 -- float int bool unverändert
 evaluateExpr ctxt x = x
 
--- go, for, new -> skip
+-- go, for, new, some special if cases -> skip
 strip :: Statement -> Statement
 strip (Go s1 s2) = Skip 
 strip (For head s1) = Skip
 strip (New var s) = strip s
 strip (Assign var e) = Skip
 strip (Sequence s1 s2) = Sequence (strip s1) (strip s2)
+strip (If e s1 s2) =
+  case (strip s1, strip s2) of
+    (Skip, Skip) -> Skip                 -- if ... then assign... else assign...
+    (s1', s2')   -> If e s1' s2'
 strip x = x
 
 assocIdRules :: Statement -> Statement
