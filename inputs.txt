@@ -5,7 +5,6 @@ c2 <- 2
 close c1
 close c2
 ---
-// 1B: vertauscht -> NICHT äquivalent (Reihenfolge ist relevant)
 var c1 chan int
 var c2 chan int
 c2 <- 2
@@ -13,15 +12,11 @@ c1 <- 1
 close c1
 close c2
 ---
-// Erwartung: A ~ B = False, dual(A) ~ B = False
-
-// 2A: gleicher Effekt durch cond-dist (gemeinsames Suffix)
 var c chan int
 if b then { c <- 1 } else { c <- 2 }
 c <- 3
 close c
 ---
-// 2B: gemeinsames Suffix in Zweige „eingezogen“
 var c chan int
 if b then { 
     c <- 1
@@ -32,15 +27,11 @@ if b then {
 }
 close c
 ---
-// Erwartung: A ~ B = True
-
-// 3A: gemeinsames PRÄfix
 var c chan int
 c <- 0
 if b then { c <- 1 } else { c <- 2 }
 close c
 ---
-// 3B: Präfix in Zweige „hineingedrückt“
 var c chan int
 if b then { 
     c <- 0
@@ -51,9 +42,6 @@ if b then {
 }
 close c
 ---
-// Erwartung: A ~ B = True
-
-// 4A: aliasing wechselt Kanal zur Laufzeit
 var c1 chan int
 var c2 chan int
 var c chan int
@@ -64,7 +52,6 @@ c <- 2
 close c1
 close c2
 ---
-// 4B: das duale Gegenstück (zwei Reads, Reihenfolge fix)
 var c1 chan int
 var c2 chan int
 x = <- c1
@@ -72,23 +59,16 @@ y = <- c2
 close c1
 close c2
 ---
-// Erwartung: dual(A) ~ B = True
-
-// 5A: Close in anderem Ort
 var c chan int
 c <- 1
 close c
 c <- 2
 ---
-// 5B: immer beide Sends vor close
 var c chan int
 c <- 1
 c <- 2
 close c
 ---
-// Erwartung: Parser lässt 5A zu? Falls ja: A ~ B = False (Nutzung nach close)
-
-// 6A: zweig-längen unterschiedlich (Else kürzer)
 var c chan int
 if b then { 
     c <- 1
@@ -96,7 +76,6 @@ if b then {
 } else { c <- 2 }
 close c
 ---
-// 6B: Zweige symmetrisch, aber mit anderer Auswahl
 var c chan int
 if b then { 
     c <- 1
@@ -106,49 +85,34 @@ if b then {
     c <- 2 }
 close c
 ---
-// Erwartung: A ~ B = False
-
-// 7A: konditionale Gleichheit über logisch äquivalente Guards (syntaktisch verschieden!)
 var c chan int
 x = <- c
 if (x > 0) then { c <- 1 } else { c <- 2 }
 close c
 ---
-// 7B: Else-Guard negiert (syntaktisch anders)
 var c chan int
 x = <- c
 if (x <= 0) then { c <- 2 } else { c <- 1 }
 close c
 ---
-// Erwartung: Mit SMT True; ohne SMT (syntaktisch) meist False
-
-// 8A: verschachtelte konditionale, die sich zu einfacherem if normalisieren
 var c chan int
 if b then { if b then c <- 1 else c <- 1 } else { c <- 2 }
 close c
 ---
-// 8B: schlichtes if
 var c chan int
 if b then { c <- 1 } else { c <- 2 }
 close c
 ---
-// Erwartung: A ~ B = True (cond-eta innen)
-
-// 9A: aliasing der Bool-Guards über Zuweisungen
 var c chan int
 var y bool
 y := (x > 0)
 if y then { c <- 1 } else { c <- 2 }
 close c
 ---
-// 9B: gleiche Bedingung direkt
 var c chan int
 if (x > 0) then { c <- 1 } else { c <- 2 }
 close c
 ---
-// Erwartung: A ~ B = True (Substitution bei ST-Erzeugung greift)
-
-// 10A: zwei Kanäle, gemeinsam prädikatsgesteuert
 var c1 chan int
 var c2 chan int
 if b then { 
@@ -161,7 +125,6 @@ if b then {
 close c1
 close c2
 ---
-// 10B: dual (beide lesen in beiden Zweigen)
 var c1 chan int
 var c2 chan int
 x = <- c1
@@ -169,9 +132,6 @@ y = <- c2
 close c1
 close c2
 ---
-// Erwartung: dual(A) ~ B = True
-
-// 11A: Reihenfolge auf ZWEI Kanälen verzahnt
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -189,23 +149,16 @@ c1 <- 3
 close c1
 close c2
 ---
-// Erwartung: A ~ B = False
-
-// 12A: if mit identischen Aktionen, danach weiterer Send
 var c chan int
 if b then { c <- 1 } else { c <- 1 }
 c <- 2
 close c
 ---
-// 12B: else-Variante „eingeklappt“
 var c chan int
 c <- 1
 c <- 2
 close c
 ---
-// Erwartung: A ~ B = True (cond-eta + assoc)
-
-// 13A: verschachtelter gemeinsamer Suffix in beiden Zweigen
 var c chan int
 if b then { 
     c <- 1
@@ -216,15 +169,11 @@ if b then {
 }
 close c
 ---
-// 13B: aufgelöst zu einfacher Sequenz
 var c chan int
 if b then { c <- 1 } else { c <- 2 }
 c <- 3
 close c
 ---
-// Erwartung: A ~ B = True
-
-// 14A: doppelte Nutzung desselben Kanals über Alias
 var c1 chan int
 var c chan int
 c := c1
@@ -233,15 +182,11 @@ c := c1
 c <- 2
 close c1
 ---
-// 14B: gleich ohne Alias
 var c1 chan int
 c1 <- 1
 c1 <- 2
 close c1
 ---
-// Erwartung: A ~ B = True
-
-// 15A: else hat verstecktes 'skip' + anderes Close-Ordering
 var c1 chan int
 var c2 chan int
 if b then { 
@@ -257,7 +202,6 @@ if b then {
     close c1 
 }
 ---
-// 15B: kanonisches Close-Ordering
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -265,16 +209,12 @@ c2 <- 2
 close c1
 close c2
 ---
-// Erwartung: A ~ B = True (id/assoc + Skips + Close-Reihenfolge gleich nach Strip)
-
-// 16A: zwei aufeinanderfolgende ifs mit unabhängigen Guards
 var c chan int
 x = <- c
 if (x > 0) then { c <- 1 } else { c <- 2 }
 if (x > 0) then { c <- 3 } else { c <- 4 }
 close c
 ---
-// 16B: kombinierte Zweige
 var c chan int
 x = <- c
 if (x > 0) then { 
@@ -286,20 +226,13 @@ if (x > 0) then {
 }
 close c
 ---
-// Erwartung: A ~ B = True (cond-dist nacheinander)
-
-// 17A: for-Schleife mit 0 Durchläufen (Edge)
 var c chan int
 for (i=0;i<0;i++) { c <- i }
 close c
 ---
-// 17B: keine Kommunikation
 var c chan int
 close c
 ---
-// Erwartung: A ~ B = True (for 0 ~ skip)
-
-// 18A: if-Else unterscheidet Zählung (nicht äquivalent)
 var c chan int
 if b then { 
     c <- 1
@@ -311,7 +244,6 @@ if b then {
 }
 close c
 ---
-// 18B: beide Zweige zwei Sends
 var c chan int
 if b then { 
     c <- 1
@@ -322,9 +254,6 @@ if b then {
 }
 close c
 ---
-// Erwartung: A ~ B = False
-
-// 19A: Receive und danach konditional unterschiedliche Längen
 var c chan int
 x = <- c
 if (x == 0) then { 
@@ -335,7 +264,6 @@ if (x == 0) then {
 }
 close c
 ---
-// 19B: anderes Muster
 var c chan int
 x = <- c
 if (x == 0) then { 
@@ -346,9 +274,6 @@ if (x == 0) then {
 }
 close c
 ---
-// Erwartung: A ~ B = False (Zweige vertauschen Längen)
-
-// 20A: verschachtelte Bedingungen, logisch gleich aber syntaktisch anders
 var c chan int
 if (b && (1 - b)) then { c <- 1 } else { c <- 2 }
 close c
@@ -358,9 +283,6 @@ var c chan int
 c <- 2
 close c
 ---
-// Erwartung: Mit Vereinfachung (SMT) True; ohne SMT meist False
-
-// 21A: zwei Kanäle, Close-Mischung
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -368,7 +290,6 @@ close c2
 c2 <- 2
 close c1
 ---
-// 21B: korrektes Close nach Nutzung
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -376,16 +297,12 @@ c2 <- 2
 close c1
 close c2
 ---
-// Erwartung: A ~ B = False (Nutzung nach close in A)
-
-// 22A: zwei Receives, aber Else-Zweig überspringt zweiten Send
 var c chan int
 x = <- c
 y = <- c
 if b then { c <- x } else { skip }
 close c
 ---
-// 22B: dual soll immer zwei Sends haben
 var c chan int
 var x int
 c <- 0
@@ -393,12 +310,14 @@ c <- 0
 if b then { x := 1 } else { skip }
 close c
 ---
+// 23A: nur assigns in den if Zweigen
 var c chan int
 var x int
 if b then { x := 1 } else { y := 1 }
 c <- x
 close c
 ---
+// 23B: nur assigns in den if Zweigen
 var c chan int
 var x int
 if b then { x := 1 } else { y := 1 }
