@@ -323,4 +323,19 @@ var x int
 if b then { x := 1 } else { y := 1 }
 c <- x
 close c
-
+---
+// 24A: Aliasing wie im Mailaustausch erwähnt
+var c1 chan int
+var c2 chan int
+var c chan int
+if b then { c = c1 } else { c = c2 }
+c <- 1
+close c1
+close c2
+---
+// 24B: direktes Reinschreiben ohne Aliasing
+var c1 chan int
+var c2 chan int
+if b then { c1 <- 1 } else { c2 <- 1 }
+close c1
+close c2

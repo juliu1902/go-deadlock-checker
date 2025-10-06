@@ -84,7 +84,9 @@ stmtToST ctxt0 st0 = stmtToSTHelper ctxt0 st0 where
           ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
       in (If e' s1' s2', ctxtMerged)
     Assign var (EVar x) ->
-      (Assign var (EVar x), updateOneAV var (ATerm (EVar x)) ctxt)
+      case lookupAV x ctxt of
+        AChan cid -> (Assign var (EVar x), updateOneAV var (AChan cid) ctxt)
+        _ -> (Assign var (EVar x), updateOneAV var (ATerm (EVar x)) ctxt)
     Assign var expr ->
       (Assign var expr, updateOneAV var (ATerm expr) ctxt)
     Send v ->
