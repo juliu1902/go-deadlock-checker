@@ -353,4 +353,21 @@ var c2 chan int
 var c chan int
 if b then { c = c1 } else { c = c2 }
 if b then { close c1 } else { close c2 }
-
+---
+// 26A
+var c1 chan int
+var c2 chan int
+var x int
+if x>0 then { c1 <- x } else { c2 <- -x }
+close c1
+close c2
+---
+// 26B
+var x int
+var c1 chan int
+var c2 chan int
+c1 ::= make (chan int)
+c2 ::= make (chan int)
+if x>0 then { c1 <- x } else { c2 <- -x }
+close c1
+close c2
