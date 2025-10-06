@@ -93,6 +93,8 @@ stmtToST ctxt0 st0 = stmtToSTHelper ctxt0 st0 where
       (setInContext "send" ctxt v, ctxt)
     Receive v ->
       (setInContext "recv" ctxt v, ctxt)
+    End v ->
+      (setInContext "end" ctxt v, ctxt)
     Go s1 s2 ->
       let (s1', ctxt1) = stmtToSTHelper ctxt s1
           (s2', ctxt2) = stmtToSTHelper ctxt s2
@@ -108,7 +110,7 @@ setInContext :: String -> Context -> VarName -> Statement
 setInContext mode ctxt v =
   case lookupAV v ctxt of
     AIf cond (AChan c1) (AChan c2) ->
-      let act m ch = if m == "send" then Send ch else Receive ch in
+      let act m ch = if m == "send" then Send ch else if m == "recv" then Receive ch else End ch in
         if c1 == c2
           then act mode v          
           else
@@ -117,10 +119,10 @@ setInContext mode ctxt v =
             in If (evaluateExpr ctxt cond) (act mode ch1) (act mode ch2)
     ATerm e -> -- trace what v points at if it is a basic variable assignment
       case evaluateExpr ctxt e of
-        EVar y -> if mode == "send" then Send y else Receive y 
-        _      -> if mode == "send" then Send v else Receive v
+        EVar y -> if mode == "send" then Send y else if mode == "recv" then Receive y else End y
+        _      -> if mode == "send" then Send v else if mode == "recv" then Receive v else End v
     -- Fallback
-    _ -> if mode == "send" then Send v else Receive v
+    _ -> if mode == "send" then Send v else if mode == "recv" then Receive v else End v
 
 -- representing a parsed Statement as a Session Type, optionally used after stmtToST!
 prettyPrintST :: Statement -> String

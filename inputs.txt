@@ -339,3 +339,18 @@ var c2 chan int
 if b then { c1 <- 1 } else { c2 <- 1 }
 close c1
 close c2
+---
+// 25A
+var c1 chan int
+var c2 chan int
+var c chan int
+if b then { c = c1 } else { c = c2 }
+close c
+---
+// 25B
+var c1 chan int
+var c2 chan int
+var c chan int
+if b then { c = c1 } else { c = c2 }
+if b then { close c1 } else { close c2 }
+
