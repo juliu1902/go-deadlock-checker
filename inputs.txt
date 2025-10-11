@@ -1,3 +1,4 @@
+// Paar 1: zwei sends in unterschiedlicher Reihenfolge -> equiv FALSE!
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -12,6 +13,8 @@ c1 <- 1
 close c1
 close c2
 ---
+
+// Paar 2: Durch cond-eta in Normalform -> equiv TRUE!
 var c chan int
 if b then { c <- 1 } else { c <- 2 }
 c <- 3
@@ -27,6 +30,8 @@ if b then {
 }
 close c
 ---
+
+// Paar 3: Auch hier dasselbe, in anderer Konstellation -> equiv TRUE!
 var c chan int
 c <- 0
 if b then { c <- 1 } else { c <- 2 }
@@ -42,6 +47,8 @@ if b then {
 }
 close c
 ---
+
+// Paar 4
 var c1 chan int
 var c2 chan int
 var c chan int
@@ -59,6 +66,7 @@ y = <- c2
 close c1
 close c2
 ---
+
 var c chan int
 c <- 1
 close c

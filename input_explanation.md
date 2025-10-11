@@ -920,6 +920,7 @@ c1 := c2
 c := c1
 c <- 2
 close c
+müsste doch c2!;c2# sein?
 
 und von
 var c chan int
@@ -927,6 +928,9 @@ c2 ::= make (chan int)
 c := c2 
 c <- 1
 close c
+müsste doch c2!;c2# sein?
+
+
 
 
 ```

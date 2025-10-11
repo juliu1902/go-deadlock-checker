@@ -241,7 +241,7 @@ dual x = x
 -- substitutes all variables in an expression with a context
 evaluateExpr :: Context -> Expr -> Expr 
 evaluateExpr ctxt (EVar x) = case (Map.lookup x ctxt) of
-  Just (t, ATerm x) -> evaluateExpr ctxt x
+  Just (t, ATerm var) -> evaluateExpr ctxt var
   _ -> (EVar x)
 evaluateExpr ctxt (EBinOp op e1 e2) = EBinOp op (evaluateExpr ctxt e1) (evaluateExpr ctxt e2)
 -- float int bool unverändert
