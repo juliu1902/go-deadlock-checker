@@ -84,9 +84,7 @@ stmtToST ctxt0 st0 = stmtToSTHelper ctxt0 st0 where
           ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
       in (If e' s1' s2', ctxtMerged)
     Assign var (EVar x) ->
-      case lookupAV x ctxt of
-        AChan cid -> (Assign var (EVar x), updateOneAV var (AChan cid) ctxt)
-        _ -> (Assign var (EVar x), updateOneAV var (ATerm (EVar x)) ctxt)
+      (Assign var (EVar x), updateOneAV var (ATerm (EVar x)) ctxt)
     Assign var expr ->
       (Assign var expr, updateOneAV var (ATerm expr) ctxt)
     Send v ->
@@ -104,19 +102,18 @@ stmtToST ctxt0 st0 = stmtToSTHelper ctxt0 st0 where
       in (For hdr s', ctxt')
     _ -> (st, ctxt)
 
+
 --  where does the VarName come from (what's "inside")
 -- used for "Send v"/"Receive v" to trace
 setInContext :: String -> Context -> VarName -> Statement
 setInContext mode ctxt v =
   case lookupAV v ctxt of
-    AIf cond (AChan c1) (AChan c2) ->
-      let act m ch = if m == "send" then Send ch else if m == "recv" then Receive ch else End ch in
-        if c1 == c2
-          then act mode v          
+    AIf cond (ATerm (EVar e1)) (ATerm (EVar e2)) ->
+      let act m var = if m == "send" then Send var else if m == "recv" then Receive var else End var in 
+        if e1 == e2
+          then act mode v
           else
-            let ch1 = head (lookupVarNamesForChannel c1 ctxt)
-                ch2 = head (lookupVarNamesForChannel c2 ctxt)
-            in If (evaluateExpr ctxt cond) (act mode ch1) (act mode ch2)
+            If (evaluateExpr ctxt cond) (setInContext mode ctxt e1) (setInContext mode ctxt e2)
     ATerm e -> -- trace what v points at if it is a basic variable assignment
       case evaluateExpr ctxt e of
         EVar y -> if mode == "send" then Send y else if mode == "recv" then Receive y else End y

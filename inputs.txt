@@ -48,7 +48,7 @@ if b then {
 close c
 ---
 
-// Paar 4
+// Paar 4, aliasing test, c wird einmal c1 und einmal c2 zugewiesen, daher c1!;c2! -> dual TRUE!
 var c1 chan int
 var c2 chan int
 var c chan int
@@ -67,6 +67,7 @@ close c1
 close c2
 ---
 
+// Paar 5 auf c schreiben nach close c erlaubt?? TODO -> equiv FALSE!
 var c chan int
 c <- 1
 close c
@@ -77,6 +78,8 @@ c <- 1
 c <- 2
 close c
 ---
+
+// Paar 6 -> equiv FALSE!
 var c chan int
 if b then { 
     c <- 1
@@ -93,6 +96,8 @@ if b then {
     c <- 2 }
 close c
 ---
+
+// Paar 7 -> equiv TRUE!
 var c chan int
 x = <- c
 if (x > 0) then { c <- 1 } else { c <- 2 }
@@ -103,6 +108,8 @@ x = <- c
 if (x <= 0) then { c <- 2 } else { c <- 1 }
 close c
 ---
+
+// Paar 8 vernestelte if -> equiv TRUE!
 var c chan int
 if b then { if b then c <- 1 else c <- 1 } else { c <- 2 }
 close c
@@ -111,6 +118,8 @@ var c chan int
 if b then { c <- 1 } else { c <- 2 }
 close c
 ---
+
+// Paar 9 y wird in der if bedingung durch x>0 ersetzt! -> equiv TRUE!
 var c chan int
 var y bool
 y := (x > 0)
@@ -121,6 +130,8 @@ var c chan int
 if (x > 0) then { c <- 1 } else { c <- 2 }
 close c
 ---
+
+// Paar 10 noch ein cond-eta test mit dualität -> dual TRUE!
 var c1 chan int
 var c2 chan int
 if b then { 
@@ -140,6 +151,8 @@ y = <- c2
 close c1
 close c2
 ---
+
+// Paar 11 noch ein Reihenfolgentest -> equiv FALSE!
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -148,7 +161,6 @@ c1 <- 3
 close c1
 close c2
 ---
-// 11B: andere Verzahnung
 var c1 chan int
 var c2 chan int
 c2 <- 2
@@ -157,6 +169,8 @@ c1 <- 3
 close c1
 close c2
 ---
+
+// Paar 12 noch ein cond-eta test -> equiv TRUE!
 var c chan int
 if b then { c <- 1 } else { c <- 1 }
 c <- 2
@@ -167,6 +181,8 @@ c <- 1
 c <- 2
 close c
 ---
+
+// Paar 13 vernestelte if test -> equiv TRUE!
 var c chan int
 if b then { 
     c <- 1
@@ -182,11 +198,12 @@ if b then { c <- 1 } else { c <- 2 }
 c <- 3
 close c
 ---
+
+// Paar 14 noch ein aliasing test -> equiv TRUE!
 var c1 chan int
 var c chan int
 c := c1
 c <- 1
-c := c1
 c <- 2
 close c1
 ---
@@ -195,6 +212,8 @@ c1 <- 1
 c1 <- 2
 close c1
 ---
+
+// Paar 15 skips beeinflussen den ST nicht, könnte äquivalent mit SMT solver sein? TODO -> equiv FALSE!
 var c1 chan int
 var c2 chan int
 if b then { 
@@ -217,6 +236,8 @@ c2 <- 2
 close c1
 close c2
 ---
+
+// Paar 16 vernestelte if test -> equiv TRUe!
 var c chan int
 x = <- c
 if (x > 0) then { c <- 1 } else { c <- 2 }
@@ -234,6 +255,8 @@ if (x > 0) then {
 }
 close c
 ---
+
+// Paar 17 for test (werden bis jetzt noch nicht behandelt und ignoriert TODO?) -> equiv TRUE!
 var c chan int
 for (i=0;i<0;i++) { c <- i }
 close c
@@ -241,6 +264,8 @@ close c
 var c chan int
 close c
 ---
+
+// Paar 18 ohne SMT solver nicht äquivalent -> equiv FALSE!
 var c chan int
 if b then { 
     c <- 1
@@ -262,6 +287,8 @@ if b then {
 }
 close c
 ---
+
+// Paar 19 then und else Zweige vertauscht -> equiv FALSE!
 var c chan int
 x = <- c
 if (x == 0) then { 
@@ -282,6 +309,8 @@ if (x == 0) then {
 }
 close c
 ---
+
+// Paar 20 -> equiv TRUE!
 var c chan int
 if (b && (1 - b)) then { c <- 1 } else { c <- 2 }
 close c
@@ -291,6 +320,8 @@ var c chan int
 c <- 2
 close c
 ---
+
+// Paar 21 Reihenfolge der Kanalschließungen unterschiedlich -> equiv FALSE!
 var c1 chan int
 var c2 chan int
 c1 <- 1
@@ -305,6 +336,8 @@ c2 <- 2
 close c1
 close c2
 ---
+
+// Paar 22 wenn nur assignments in if, dann sind sie irrelevant für den ST und werden ignoriert -> equiv FALSE!
 var c chan int
 x = <- c
 y = <- c
@@ -318,51 +351,56 @@ c <- 0
 if b then { x := 1 } else { skip }
 close c
 ---
-// 23A: nur assigns in den if Zweigen
+
+// Paar 23 nur assigns in den if Zweigen -> equiv TRUE!
 var c chan int
 var x int
 if b then { x := 1 } else { y := 1 }
 c <- x
 close c
 ---
-// 23B: nur assigns in den if Zweigen
 var c chan int
 var x int
-if b then { x := 1 } else { y := 1 }
+var y int
+var z int
+if b then { x := y } else { x := z }
 c <- x
 close c
 ---
-// 24A: Aliasing wie im Mailaustausch erwähnt
+
+
+// Paar 24 Aliasing test genau wie im Mailaustausch erwähnt -> equiv TRUE!
 var c1 chan int
 var c2 chan int
 var c chan int
-if b then { c = c1 } else { c = c2 }
+if b then { c := c1 } else { c := c2 }
 c <- 1
 close c1
 close c2
 ---
-// 24B: direktes Reinschreiben ohne Aliasing
 var c1 chan int
 var c2 chan int
 if b then { c1 <- 1 } else { c2 <- 1 }
 close c1
 close c2
 ---
-// 25A
+
+
+// Paar 25 weitere assignments im if tests und aliasing test -> equiv TRUE!
 var c1 chan int
 var c2 chan int
 var c chan int
 if b then { c = c1 } else { c = c2 }
 close c
 ---
-// 25B
 var c1 chan int
 var c2 chan int
 var c chan int
 if b then { c = c1 } else { c = c2 }
 if b then { close c1 } else { close c2 }
 ---
-// 26A
+
+// Paar 26 make chan optional, trotzdem äquivalent -> equiv TRUE!
 var c1 chan int
 var c2 chan int
 var x int
@@ -370,7 +408,6 @@ if x>0 then { c1 <- x } else { c2 <- -x }
 close c1
 close c2
 ---
-// 26B
 var x int
 var c1 chan int
 var c2 chan int
@@ -380,7 +417,8 @@ if x>0 then { c1 <- x } else { c2 <- -x }
 close c1
 close c2
 ---
-// 27A
+
+// Paar 27 beide prozesse machen dasselbe, aber benutzen unterschiedliche Variablennamen -> equiv TRUE!
 var x chan int
 var y chan int
 var c1 chan int
@@ -397,7 +435,6 @@ if x>0 then {
 close c1
 close c2
 ---
-// 27B has different channel names but does the same as 27A
 var x chan int
 var y chan int
 var d1 chan int
@@ -414,6 +451,8 @@ else { skip }
 close d1
 close d2
 ---
+
+// Paar 28 Aliasing test: close c wird zu close c2 -> equiv TRUE!
 var c chan int
 c2 ::= make (chan int)
 c := c2 
@@ -424,11 +463,13 @@ c2 ::= make (chan int)
 c2 <- 1
 close c2
 ---
+
+// Paar 29 Aliasing test, "verschachtelte" assignments, c wird zu c2 -> equiv TRUE!
 var c1 chan int
 var c2 chan int
 var c chan int
-c1 := c2
 c := c1
+c1 := c2
 c <- 2
 close c
 ---
