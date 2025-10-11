@@ -270,7 +270,6 @@ x = <- c
 if (x <= 0) then { c <- 2 } else { c <- 1 }
 close c
 ---
-// Erwartung: Mit SMT True; ohne SMT (syntaktisch) meist False
 ```
 
 ```
@@ -551,7 +550,6 @@ var c1 chan int
 var c chan int
 c := c1
 c <- 1
-c := c1
 c <- 2
 close c1
 ---
@@ -868,6 +866,7 @@ if b then { c <- x } else { skip }
 close c
 ---
 var c chan int
+var x int
 c <- 0
 c <- 0
 if b then { x := 1 } else { skip }
@@ -893,6 +892,12 @@ A ~ B : FALSE
 DUAL : FALSE
 ```
 
+### Paar 23
+
+usw...
+
+
+
 # TODO
 
 ```
@@ -909,29 +914,6 @@ c!;c#;c! wird geparsed und auf äquivalenz geprüft aber sollte es einen Fehler 
 zwei Statements sind äquivalent, auch wenn ihre conds in ihren if-statements unterschiedlich sind
 
 {c1!;c1#;c2!;c2#} if b else {c1!;c2!;skip;c2#;c1#} schon in normalisierter form? (Paar 15)
-
-Alpha renaming! c1!;c2? ~ d1!;d2? 
-
-was ist der session type von
-var c1 chan int
-var c2 chan int
-var c chan int
-c1 := c2
-c := c1
-c <- 2
-close c
-müsste doch c2!;c2# sein?
-
-und von
-var c chan int
-c2 ::= make (chan int)
-c := c2 
-c <- 1
-close c
-müsste doch c2!;c2# sein?
-
-
-
 
 ```
 
