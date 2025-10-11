@@ -1,7 +1,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE InstanceSigs #-}
 module Main where
-import qualified Data.Map as Map (fromList)
+import qualified Data.Map as Map (fromList, empty)
 import Text.Megaparsec
 import Parser
 import Datastructure
@@ -10,7 +10,7 @@ import System.Exit (die)
 
 -- Are s1 and s2 equivalent?
 testEquiv :: Statement -> Statement -> Bool
-testEquiv s1 s2 = testEquivalence (normalizeST s1) (normalizeST s2)
+testEquiv s1 s2 = testEquivalence (canonicalizeChannelNames (normalizeST s1) Map.empty) (canonicalizeChannelNames (normalizeST s2) Map.empty)
 
 -- Is s1 dual to s2?
 testDual :: Statement -> Statement -> Bool
@@ -73,6 +73,10 @@ runCase i (srcA, srcB) =
       putStrLn   "\nNormalformen:"
       putStrLn ("A: " ++ prettyPrintST (normalizeST stA))
       putStrLn ("B: " ++ prettyPrintST (normalizeST stB))
+
+      putStrLn "\nNormalform mit kanonisierte Variablenbenennung"
+      putStrLn ("Canonized A: " ++ prettyPrintST (canonicalizeChannelNames (normalizeST stA) Map.empty))
+      putStrLn ("Canonized B: " ++ prettyPrintST (canonicalizeChannelNames (normalizeST stB) Map.empty))
 
       putStrLn   "\nTests:"
       putStrLn ("A ~ B?        " ++ show (testEquiv stA stB))

@@ -317,3 +317,44 @@ testEquivalence s t = case (s, t) of
   (If e s1 s3, If e' s2 s4) -> e == e' && testEquivalence s1 s2 && testEquivalence s3 s4
   -- else false
   _ -> False
+
+-- generates the unique channelID names 
+freshName :: FreshM VarName
+freshName = do
+  n <- get
+  put (n+1)
+  return $ VarName ("a" ++ show n)
+-- takes a normalized ST and renames all varnames for channels in the same way to 
+-- test if two STs are the same despite their different channel names
+-- Map VarName VarName = alle neuen Zuweisungen von alt zu neu
+canonicalizeChannelNames :: Statement -> Map.Map VarName VarName -> Statement
+canonicalizeChannelNames stmt list = fst (evalState (canonicalizeHelper stmt list) 0) where
+  canonicalizeHelper :: Statement -> Map.Map VarName VarName -> FreshM (Statement, Map.Map VarName VarName)
+  canonicalizeHelper stmt assignments = case stmt of
+    Send v -> case Map.lookup v assignments of
+      Just new -> return ((Send new), assignments)
+      Nothing -> do
+        new <- freshName
+        let assignments' = Map.insert v new assignments
+        return ((Send new), assignments')
+    Receive v -> case Map.lookup v assignments of
+      Just new -> return ((Receive new), assignments)
+      Nothing -> do
+        new <- freshName
+        let assignments' = Map.insert v new assignments
+        return ((Receive new), assignments')
+    End v -> case Map.lookup v assignments of
+      Just new -> return ((End new), assignments)
+      Nothing -> do
+        new <- freshName
+        let assignments' = Map.insert v new assignments
+        return ((End new), assignments')
+    If expr stmt1 stmt2 -> do
+      (stmt1', assignments1) <- canonicalizeHelper stmt1 assignments 
+      (stmt2', assignments2) <- canonicalizeHelper stmt2 assignments1
+      return ((If expr stmt1' stmt2'), assignments2)
+    Sequence stmt1 stmt2 -> do
+      (stmt1', assignments1) <- canonicalizeHelper stmt1 assignments 
+      (stmt2', assignments2) <- canonicalizeHelper stmt2 assignments1
+      return ((Sequence stmt1' stmt2'), assignments2)
+    x -> return (x, assignments)

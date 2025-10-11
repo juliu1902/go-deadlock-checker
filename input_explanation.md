@@ -910,5 +910,24 @@ zwei Statements sind äquivalent, auch wenn ihre conds in ihren if-statements un
 
 {c1!;c1#;c2!;c2#} if b else {c1!;c2!;skip;c2#;c1#} schon in normalisierter form? (Paar 15)
 
+Alpha renaming! c1!;c2? ~ d1!;d2? 
+
+was ist der session type von
+var c1 chan int
+var c2 chan int
+var c chan int
+c1 := c2
+c := c1
+c <- 2
+close c
+
+und von
+var c chan int
+c2 ::= make (chan int)
+c := c2 
+c <- 1
+close c
+
+
 ```
 
