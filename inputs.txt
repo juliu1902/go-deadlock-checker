@@ -355,6 +355,7 @@ close c
 // Paar 23 nur assigns in den if Zweigen -> equiv TRUE!
 var c chan int
 var x int
+var y int
 if b then { x := 1 } else { y := 1 }
 c <- x
 close c
@@ -367,7 +368,6 @@ if b then { x := y } else { x := z }
 c <- x
 close c
 ---
-
 
 // Paar 24 Aliasing test genau wie im Mailaustausch erwähnt -> equiv TRUE!
 var c1 chan int
@@ -384,7 +384,6 @@ if b then { c1 <- 1 } else { c2 <- 1 }
 close c1
 close c2
 ---
-
 
 // Paar 25 weitere assignments im if tests und aliasing test -> equiv TRUE!
 var c1 chan int

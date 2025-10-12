@@ -894,9 +894,258 @@ DUAL : FALSE
 
 ### Paar 23
 
-usw...
+```
+var c chan int
+var x int
+var y int
+if b then { x := 1 } else { y := 1 }
+c <- x
+close c
+---
+var c chan int
+var x int
+var y int
+var z int
+if b then { x := y } else { x := z }
+c <- x
+close c
+```
 
+```
+ST A:
+c!;c#
 
+ST B:
+c!;c#
+```
+
+```
+Context A in the end: 
+"c" -> (TChan CInt, AChan "id0")
+"x" -> (TInt, AIf b (ATerm 1) (AUnknown))
+"y" -> (TInt, AIf b AUnknown (ATerm 1))
+
+Context B in the end:
+"c" -> (TChan CInt, AChan "id0")
+"x" -> (TInt, AIf b (ATerm y) (ATerm z)
+"y" -> (TInt, AUnknown)
+"z" -> (TInt, AUnknown)
+```
+
+```
+A ~ B : TRUE
+DUAL : FALSE
+```
+
+### Paar 24
+
+```
+var c1 chan int
+var c2 chan int
+var c chan int
+if b then { c := c1 } else { c := c2 }
+c <- 1
+close c1
+close c2
+---
+var c1 chan int
+var c2 chan int
+if b then { c1 <- 1 } else { c2 <- 1 }
+close c1
+close c2
+```
+
+```
+ST A:
+c1! if b else c2!;c1#;c2#
+
+ST B:
+c1! if b else c2!;c1#;c2#
+```
+
+```
+Context A in the end: 
+"c" -> (TChan CInt, AIf b (ATerm c1) (ATerm c2))
+"c1" -> (TChan CInt, AChan ChannelID "id0")
+"c2" -> (TChan CInt, AChan ChannelID "id1")
+
+Context B in the end:
+"c1" -> (TChan CInt, AChan ChannelID "id0")
+"c2" -> (TChan CInt, AChan ChannelID "id1")
+```
+
+```
+A ~ B : TRUE
+DUAL : FALSE
+```
+
+### Paar 25
+
+```
+var c1 chan int
+var c2 chan int
+var c chan int
+if b then { c = c1 } else { c = c2 }
+close c
+---
+var c1 chan int
+var c2 chan int
+var c chan int
+if b then { c = c1 } else { c = c2 }
+if b then { close c1 } else { close c2 }
+```
+
+```
+ST A:
+if b then c1# else c2#
+
+ST B:
+if b then c1# else c2#
+```
+
+```
+A ~ B : TRUE
+DUAL : TRUE
+```
+
+### Paar 26
+
+```
+var c1 chan int
+var c2 chan int
+var x int
+if x>0 then { c1 <- x } else { c2 <- -x }
+close c1
+close c2
+---
+var x int
+var c1 chan int
+var c2 chan int
+c1 ::= make (chan int)
+c2 ::= make (chan int)
+if x>0 then { c1 <- x } else { c2 <- -x }
+close c1
+close c2
+```
+
+```
+ST A:
+c1! if x>0 else c2!;c1#;c2#
+
+ST B:
+new c1.new c2.c1! if x>0 else c2!;c1#;c2#
+```
+
+```
+A ~ B : TRUE
+DUAL : FALSE
+```
+
+### Paar 27
+
+```
+var x chan int
+var y chan int
+var c1 chan int
+var c2 chan int
+x := <- c1
+y := <- c2
+if x>0 then { 
+    c1 <- x
+    c2 <- x 
+} else if x<0 then { 
+    c1 <- 3*x
+    c2 <- 3*x 
+} else { skip }
+close c1
+close c2
+---
+var x chan int
+var y chan int
+var d1 chan int
+var d2 chan int
+x := <- d1
+y := <- d2
+if x>0 then { 
+    d1 <- x
+    d2 <- x 
+} else if x<0 then { 
+    d1 <- 3*x
+    d2 <- 3*x } 
+else { skip }
+close d1
+close d2
+```
+
+```
+ST A:
+c1?;c2?;{c1!;c2!} if x>0 else {{c1!;c2!} if x<0 else skip};c1#;c2#
+
+ST B:
+d1?;d2?;{d1!;d2!} if x>0 else {{d1!;d2!} if x<0 else skip};d1#;d2#
+```
+
+```
+A ~ B : TRUE
+DUAL : FALSE
+```
+
+### Paar 28
+
+```
+var c chan int
+c2 ::= make (chan int)
+c := c2 
+c <- 1
+close c
+---
+c2 ::= make (chan int)
+c2 <- 1
+close c2
+```
+
+```
+ST A:
+c2!;c2#
+
+ST B:
+c2!;c2#
+```
+
+```
+A ~ B : TRUE
+DUAL : FALSE
+```
+
+### Paar 29
+
+```
+var c1 chan int
+var c2 chan int
+var c chan int
+c := c1
+c1 := c2
+c <- 2
+close c
+---
+var c1 chan int
+var c2 chan int
+c2 <- 2
+close c2
+```
+
+```
+ST A:
+c2!;c2#
+
+ST B:
+c2!;c2#
+```
+
+```
+A ~ B : TRUE
+DUAL : FALSE
+```
 
 # TODO
 
@@ -911,9 +1160,6 @@ müsste Fehler aufwerfen? Assignments nur unter gleichen Typen
 
 c!;c#;c! wird geparsed und auf äquivalenz geprüft aber sollte es einen Fehler aufwerfen?
 
-zwei Statements sind äquivalent, auch wenn ihre conds in ihren if-statements unterschiedlich sind
-
-{c1!;c1#;c2!;c2#} if b else {c1!;c2!;skip;c2#;c1#} schon in normalisierter form? (Paar 15)
-
+Anmerkung: zwei Statements sind äquivalent, auch wenn ihre conds in ihren if-statements unterschiedlich sind
 ```
 
