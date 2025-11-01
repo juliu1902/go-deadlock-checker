@@ -32,6 +32,25 @@ buildST src =
       let (st, ctxt) = stmtToST (freshInitialContext (initialContext decs)) stmt
        in Right (st, ctxt)
 
+checkClosed :: Statement -> Either String ()
+checkClosed st = case checkClosedHelper st [] of
+  Right closedVars -> Right ()
+  Left err -> Left err
+  where
+    checkClosedHelper :: Statement -> [VarName] -> Either String [VarName]
+    checkClosedHelper st closedVars = case st of
+      Send v -> if v `elem` closedVars then Left "Send on closed channel." else Right closedVars
+      Receive v -> if v `elem` closedVars then Left "Receive on closed channel." else Right closedVars
+      End v -> Right (closedVars ++ [v])
+      Sequence s1 s2 -> do
+        firstClosed <- checkClosedHelper s1 closedVars
+        checkClosedHelper s2 firstClosed
+      If e s1 s2 -> do
+        case (checkClosedHelper s1 closedVars, checkClosedHelper s2 closedVars) of
+          (Right fvars, Right svars) -> Right (fvars ++ svars)
+          _ -> Left "Send/Receive on closed channel in If branch"
+      For fh s -> checkClosedHelper s closedVars
+      _ -> Right closedVars
 
 -- creates a list of strings out of a long string where --- stands for a split
 splitAllByLine :: String -> [String]
@@ -78,6 +97,12 @@ runCase i (srcA, srcB) =
       die $ "Fehler beim Parsen/Typisieren von Block " ++ show i ++ "B:\n" ++ e
     (Right (stA, ctA), Right (stB, ctB)) -> do
       putStrLn $ "========== Paar " ++ show i ++ " =========="
+      case checkClosed stA of
+        Left err -> putStrLn $ "Fehler in Block " ++ show i ++ "A: " ++ err
+        Right () -> return ()
+      case checkClosed stB of
+        Left err -> putStrLn $ "Fehler in Block " ++ show i ++ "B: " ++ err
+        Right () -> return ()
       putStrLn "ST A:"
       putStrLn (prettyPrintST stA)
       putStrLn $ "Context A: " ++ show ctA

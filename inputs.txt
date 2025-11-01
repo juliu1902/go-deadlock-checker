@@ -152,7 +152,7 @@ close c1
 close c2
 ---
 
-// Paar 11 noch ein Reihenfolgentest -> equiv FALSE!
+// Paar 11 noch ein Reihenfolgentest, könnte legal sein, je nach dem durch welche Prozesse die Kanäle bedient werden -> equiv FALSE!
 var c1 chan int
 var c2 chan int
 c1 <- 1
