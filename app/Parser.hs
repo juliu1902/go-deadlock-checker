@@ -1,10 +1,12 @@
 module Parser where
-import Datastructure
-import Text.Megaparsec.Char as C
-import Text.Megaparsec.Char.Lexer as Lex
-import Data.Void
-import Text.Megaparsec
-import Control.Monad.Combinators.Expr
+
+import           Datastructure
+import           Text.Megaparsec.Char as C
+import           Text.Megaparsec.Char.Lexer as Lex
+import           Control.Monad.Combinators.Expr
+import           Data.Void
+import           Text.Megaparsec
+import           Control.Monad.Combinators.Expr
 
 type Parser = Parsec Void String
 
@@ -230,13 +232,13 @@ parseEnd = do
   spaceConsumer
   End <$> parseVar
 
-
 parseCondPlaceHolder :: Parser Expr
 parseCondPlaceHolder = do
-    spaceConsumer
-    _ <- char '*'
-    spaceConsumer
-    return $ EVar (VarName "*")
+  spaceConsumer
+  _ <- char '*'
+  spaceConsumer
+  return $ EVar (VarName "*")
+
 
 -- Bis jetzt nur einfache comparison expressions erlaubt
 parseIf :: Parser Statement

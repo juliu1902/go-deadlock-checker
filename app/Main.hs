@@ -28,9 +28,11 @@ buildST' :: String -> Either String (Statement, Context)
 buildST' src =
   case runParser parseProgram "" src of
     Left err -> Left (errorBundlePretty err)
-    Right (Program decs stmt) -> case stmtToST' (freshInitialContext (initialContext decs)) stmt of
-      Left err -> Left err
-      Right (st, ctxt) -> Right (st, ctxt)
+    Right (Program decs stmt) ->
+      case stmtToST' (freshInitialContext (initialContext decs)) stmt of
+        Left err         -> Left err
+        Right (st, ctxt) -> Right (st, ctxt)
+
 
 -- Parses a program and returns its Session Type or an error if it couldn't be parsed
 buildST :: String -> Either String (Statement, Context)
@@ -69,6 +71,7 @@ checkClosed st =
             _ -> Left "Send/Receive on closed channel in If branch"
         For fh s -> checkClosedHelper s closedVars
         _ -> Right closedVars
+
 
 -- creates a list of strings out of a long string where --- stands for a split
 splitAllByLine :: String -> [String]
