@@ -50,13 +50,14 @@ instance Show (IncDec)
 data ChanType
   = CInt
   | CBool
-  deriving (Show)
+  deriving (Show, Eq)
 
 data VarType
   = TInt
   | TBool
+  | TFloat
   | TChan ChanType
-  deriving (Show)
+  deriving (Show, Eq)
 
 type VarDec = (VarName, VarType)
 
@@ -165,7 +166,7 @@ stmtToST ctxt st =
     End v -> (setInContext "end" ctxt v, ctxt)
     Go s1 s2 ->
       let (s1', ctxt1) = stmtToST ctxt s1
-          (s2', ctxt2) = stmtToST ctxt s2
+          (s2', ctxt2) = stmtToST ctxt1 s2
        in (Go s1' s2', ctxt2)
     For hdr s ->
       let (s', ctxt') = stmtToST ctxt s
@@ -173,6 +174,301 @@ stmtToST ctxt st =
     _ -> (st, ctxt)
 
 
+-- evaluates conditions and considers the context when there is a send/receive
+stmtToST' :: Context -> Statement -> Either String (Statement, Context)
+stmtToST' ctxt st =
+  case st of
+    New c s ->
+      case stmtToST' ctxt s of
+        Right (s', ctxt') -> Right (New c s', ctxt')
+        Left err          -> Left err
+    Sequence s1 s2 ->
+      case stmtToST' ctxt s1 of
+        Right (s1', ctxt1) ->
+          case stmtToST' ctxt1 s2 of
+            Right (s2', ctxt2) -> Right (Sequence s1' s2', ctxt2)
+            Left err           -> Left err
+        Left err -> Left err
+    If e s1 s2 ->
+      case stmtToST' ctxt s1 of
+        Right (s1', ctxt1) ->
+          case stmtToST' ctxt s2 of
+            Right (s2', ctxt2) ->
+              let e' = evalExpr e ctxt -- auch hier evalExpr, damit Variablen aus der Bedingung ihren aktuellen Wert aus dem AV im Context bekommen
+                  ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
+               in case checkTypeOfExpression TBool e' ctxt of 
+                True -> Right (If e' s1' s2', ctxtMerged)
+                False -> Left $ "Type error: condition expression not of type Bool in If statement."
+            Left err -> Left err
+        Left err -> Left err
+    -- var = x
+    Assign var (EVar x) ->
+      case lookupAV x ctxt of
+        ATerm e ->
+          case typeCheck (updateOneAV var (ATerm e) ctxt) of
+            Right () -> Right (Assign var e, (updateOneAV var (ATerm e) ctxt)) -- var bekommt den Term der x definiert
+            Left err    -> Left err
+        AIf e av1 av2 ->
+          case typeCheck (updateOneAV var (AIf e av1 av2) ctxt) of
+            Right () -> Right (Assign var (EVar x), (updateOneAV var (AIf e av1 av2) ctxt)) -- var bekommt die AIf condition von x
+            Left err    -> Left err
+        _ ->
+          case typeCheck (updateOneAV var (ATerm (EVar x)) ctxt) of
+            Right _ -> Right (Assign var (EVar x), (updateOneAV var (ATerm (EVar x)) ctxt))
+    Assign var (EBinOp op e1 e2) ->
+      case typeCheck (updateOneAV var (ATerm (EBinOp op e1 e2)) ctxt) of
+        Right () ->
+          let e1' = evalExpr e1 ctxt -- evalExpr nötig, damit Variablen zum Zeitpunkt, an dem das Assignment auftritt, ihren neu zugewiesenen Wert erhalten
+              e2' = evalExpr e2 ctxt -- und dies im Kontext auch so übernommen wird
+           in Right (Assign var (EBinOp op e1' e2'), (updateOneAV var (ATerm (EBinOp op e1' e2')) ctxt)) -- wird sowohl im Statement als auch im Context übernommen
+        Left err -> Left err
+    Assign var expr ->
+      case typeCheck (updateOneAV var (ATerm expr) ctxt) of
+        Right () -> Right (Assign var expr, (updateOneAV var (ATerm expr) ctxt)) -- EBool, EInt, EFloat werden einfach so übernommen
+        Left err    -> Left err
+    Send v -> Right (setInContext "send" ctxt v, ctxt)
+    Receive v -> Right (setInContext "recv" ctxt v, ctxt)
+    End v -> Right (setInContext "end" ctxt v, ctxt)
+    Go s1 s2 ->
+      case stmtToST' ctxt s1 of
+        Left err -> Left err
+        Right (s1', ctxt1) ->
+          case stmtToST' ctxt1 s2 of
+            Left err           -> Left err
+            Right (s2', ctxt2) -> Right (Go s1' s2', ctxt2)
+    For hdr s ->
+      case stmtToST' ctxt s of
+        Right (s', ctxt') -> Right (For hdr s', ctxt')
+        Left err          -> Left err
+    _ -> Right (st, ctxt)
+
+
+typeCheck :: Context -> Either String ()
+typeCheck ctxt =
+  case Map.toList ctxt of
+    [] -> Right ()
+    ((var, (vtype, aval)):rest) ->
+      case vtype of
+        TInt ->
+          case aval of
+            ATerm (EInt x) -> typeCheck ((Map.fromList rest))
+            ATerm (EVar var) ->
+              case Map.lookup var ctxt of
+                Just (TInt, _) -> typeCheck (Map.fromList rest)
+                _ ->
+                  Left
+                    $ "Type error: variable " ++ show var ++ " not of type Int."
+            ATerm (EBinOp op e1 e2) ->
+              case op of
+                Gt -> Left "Gt operator not allowed for Int"
+                Lt -> Left "Lt operator not allowed for Int"
+                Ge -> Left "Ge operator not allowed for Int"
+                Le -> Left "Le operator not allowed for Int"
+                Eq -> Left "Eq operator not allowed for Int"
+                Neq -> Left "Neq operator not allowed for Int"
+                And -> Left "And operator not allowed for Int"
+                Or -> Left "Or operator not allowed for Int"
+                _ ->
+                  case checkTypeOfExpression TInt e1 ctxt
+                         && checkTypeOfExpression TInt e2 ctxt of
+                    True -> typeCheck (Map.fromList rest)
+                    False ->
+                      Left
+                        $ "Type error in binary operation on variable "
+                            ++ show var
+                            ++ "."
+            ATerm _ ->
+              Left $ "Type error: variable " ++ show var ++ " not of type Int."
+            AUnknown -> typeCheck (Map.fromList rest)
+            AIf e av1 av2 ->
+              case checkTypeOfExpression TBool e ctxt of
+                True -> typeCheck (Map.fromList rest)
+                False ->
+                  if e /= EVar (VarName "*")
+                    then Left
+                           $ "Type error: condition expression not of type Bool for variable "
+                               ++ show var
+                               ++ "."
+                    else typeCheck (Map.fromList rest)
+            AChan id ->
+              Left
+                $ "Type error: variable "
+                    ++ show var
+                    ++ " not of type Int (Cannot assign Channel to Int)."
+        TBool ->
+          case aval of
+            ATerm (EBool x) -> typeCheck (Map.fromList rest)
+            ATerm (EVar var) ->
+              case Map.lookup var ctxt of
+                Just (TBool, _) -> typeCheck (Map.fromList rest)
+                _ ->
+                  Left
+                    $ "Type error: variable "
+                        ++ show var
+                        ++ " not of type Bool."
+            ATerm (EBinOp op e1 e2) ->
+              case op of
+                And ->
+                  case checkTypeOfExpression TBool e1 ctxt
+                         && checkTypeOfExpression TBool e2 ctxt of
+                    True -> typeCheck (Map.fromList rest)
+                    False ->
+                      Left
+                        $ "Type error in binary operation on variable "
+                            ++ show var
+                            ++ "."
+                Or ->
+                  case checkTypeOfExpression TBool e1 ctxt
+                         && checkTypeOfExpression TBool e2 ctxt of
+                    True -> typeCheck (Map.fromList rest)
+                    False ->
+                      Left
+                        $ "Type error in binary operation on variable "
+                            ++ show var
+                            ++ "."
+                Add -> Left "Add operator not allowed for Bool"
+                Sub -> Left "Sub operator not allowed for Bool"
+                Mul -> Left "Mul operator not allowed for Bool"
+                Div -> Left "Div operator not allowed for Bool"
+                Mod -> Left "Mod operator not allowed for Bool"
+                _ -> case (checkTypeOfExpression TInt e1 ctxt, checkTypeOfExpression TInt e2 ctxt) of
+                    (True, True) -> typeCheck (Map.fromList rest)
+                    (False, True) -> Left $ "erster ausdruck vor < kein Int erkannt" ++ show ctxt
+                    (True, False) -> Left "zweiter ausdruck nach < kein Int erkannt"
+                    _ -> Left "komplett verkackt"
+            ATerm _ -> Left $ "Type error: variable " ++ show var ++ " not of type Bool."
+            AUnknown -> typeCheck (Map.fromList rest)
+            AIf e av1 av2 ->
+              case checkTypeOfExpression TBool e ctxt of
+                True -> typeCheck (Map.fromList rest)
+                False ->
+                  if e /= EVar (VarName "*")
+                    then Left
+                           $ "Type error: condition expression not of type Bool for variable "
+                               ++ show var
+                               ++ "."
+                    else typeCheck (Map.fromList rest)
+            AChan id ->
+              Left
+                $ "Type error: variable "
+                    ++ show var
+                    ++ " not of type Bool (Cannot assign Channel to Bool)."
+        TChan CInt ->
+          case aval of
+            AChan id -> typeCheck (Map.fromList rest)
+            ATerm (EVar var) ->
+              case Map.lookup var ctxt of
+                Just (TChan CInt, _) -> typeCheck (Map.fromList rest)
+                _ ->
+                  Left
+                    $ "Type error: variable "
+                        ++ show var
+                        ++ " not of type chan int."
+            ATerm (EBinOp op e1 e2) ->
+              Left
+                $ "Cannot operate binary operation on channel variable"
+                    ++ show var
+                    ++ "."
+            ATerm _ ->
+              Left
+                $ "Type error: variable "
+                    ++ show var
+                    ++ " not of type chan int."
+            AUnknown -> typeCheck (Map.fromList rest)
+            AIf e av1 av2 ->
+              case checkTypeOfExpression TBool e ctxt of
+                True -> typeCheck (Map.fromList rest)
+                False ->
+                  if e /= EVar (VarName "*")
+                    then Left
+                           $ "Type error: condition expression not of type Bool for variable "
+                               ++ show var
+                               ++ "."
+                    else typeCheck (Map.fromList rest)
+        TChan CBool ->
+          case aval of
+            AChan id -> typeCheck (Map.fromList rest)
+            ATerm (EVar var) ->
+              case Map.lookup var ctxt of
+                Just (TChan CBool, _) -> typeCheck (Map.fromList rest)
+                _ ->
+                  Left
+                    $ "Type error: variable "
+                        ++ show var
+                        ++ " not of type chan bool."
+            ATerm (EBinOp op e1 e2) ->
+              case checkTypeOfExpression (TChan CBool) e1 ctxt
+                     && checkTypeOfExpression (TChan CBool) e2 ctxt of
+                True -> typeCheck (Map.fromList rest)
+                False ->
+                  Left
+                    $ "Type error in binary operation on variable "
+                        ++ show var
+                        ++ "."
+            ATerm _ ->
+              Left
+                $ "Type error: variable "
+                    ++ show var
+                    ++ " not of type chan bool."
+            AUnknown -> typeCheck (Map.fromList rest)
+            AIf e av1 av2 ->
+              case checkTypeOfExpression TBool e ctxt of
+                True -> typeCheck (Map.fromList rest)
+                False ->
+                  if e /= EVar (VarName "*")
+                    then Left
+                           $ "Type error: condition expression not of type Bool for variable "
+                               ++ show var
+                               ++ "."
+                    else typeCheck (Map.fromList rest)
+
+checkTypeOfExpression :: VarType -> Expr -> Context -> Bool
+checkTypeOfExpression expectedType expr ctxt =
+  case expr of
+    EVar (VarName "*") -> if expectedType == TBool then True else False
+    EVar var ->
+      case Map.lookup var ctxt of
+        Just (vtype, _) -> vtype == expectedType
+        Nothing         -> False
+    EBool x -> expectedType == TBool
+    EInt x -> expectedType == TInt
+    EFloat x -> expectedType == TFloat
+    EBinOp op e1 e2 ->
+      case op of
+        Add -> if expectedType == TInt then
+          checkTypeOfExpression expectedType e1 ctxt && checkTypeOfExpression expectedType e2 ctxt
+        else False
+        Sub -> if expectedType == TInt then
+          checkTypeOfExpression expectedType e1 ctxt
+            && checkTypeOfExpression expectedType e2 ctxt
+        else False
+        Mul -> if expectedType == TInt then
+          checkTypeOfExpression expectedType e1 ctxt
+            && checkTypeOfExpression expectedType e2 ctxt
+        else False
+        Div -> if expectedType == TInt then
+          checkTypeOfExpression expectedType e1 ctxt
+            && checkTypeOfExpression expectedType e2 ctxt
+        else False
+        Mod -> if expectedType == TInt then
+          checkTypeOfExpression expectedType e1 ctxt
+            && checkTypeOfExpression expectedType e2 ctxt
+        else False
+        And -> if expectedType == TBool then
+          checkTypeOfExpression TBool e1 ctxt
+            && checkTypeOfExpression TBool e2 ctxt
+          else False
+        Or -> if expectedType == TBool then
+          checkTypeOfExpression TBool e1 ctxt
+            && checkTypeOfExpression TBool e2 ctxt
+        else False
+        _ -> if expectedType == TBool then
+          checkTypeOfExpression TInt e1 ctxt
+            && checkTypeOfExpression TInt e2 ctxt
+            || checkTypeOfExpression TFloat e1 ctxt
+                 && checkTypeOfExpression TFloat e2 ctxt
+          else False
+          
 -- evaluates an expression based on the current context
 -- only really relevant for expressions that are variables
 evalExpr :: Expr -> Context -> Expr
@@ -327,9 +623,8 @@ lookupVarNamesForChannel ch ctxt =
 updateOneAV :: VarName -> AbstractVal -> Context -> Context
 updateOneAV x av ctxt =
   case Map.lookup x ctxt of
-    Nothing     -> ctxt
-    Just (t, _) -> Map.insert x (t, av) ctxt
-
+    Just (t, _) -> Map.insert x (t, av) $ ctxt  -- Keep existing context by using $ instead of direct application
+    _ -> ctxt
 
 -- the analysed "if-then-else branch" brought two contexts
 -- mergeIfContexts merges them into one

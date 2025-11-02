@@ -16,12 +16,12 @@ close c2
 
 // Paar 2: Durch cond-eta in Normalform -> equiv TRUE!
 var c chan int
-if b then { c <- 1 } else { c <- 2 }
+if * then { c <- 1 } else { c <- 2 }
 c <- 3
 close c
 ---
 var c chan int
-if b then { 
+if * then { 
     c <- 1
     c <- 3 
 } else { 
@@ -33,11 +33,13 @@ close c
 
 // Paar 3: Auch hier dasselbe, in anderer Konstellation -> equiv TRUE!
 var c chan int
+var b bool
 c <- 0
 if b then { c <- 1 } else { c <- 2 }
 close c
 ---
 var c chan int
+var b bool
 if b then { 
     c <- 0
     c <- 1 
@@ -59,6 +61,8 @@ c <- 2
 close c1
 close c2
 ---
+var x int
+var y int
 var c1 chan int
 var c2 chan int
 x = <- c1
@@ -81,14 +85,15 @@ close c
 
 // Paar 6 -> equiv FALSE!
 var c chan int
-if b then { 
+if * then { 
     c <- 1
     c <- 2 
 } else { c <- 2 }
 close c
 ---
 var c chan int
-if b then { 
+var b bool
+if * then { 
     c <- 1
     c <- 2 
 } else { 
@@ -99,11 +104,13 @@ close c
 
 // Paar 7 -> equiv TRUE!
 var c chan int
+var x int
 x = <- c
 if (x > 0) then { c <- 1 } else { c <- 2 }
 close c
 ---
 var c chan int
+var x int
 x = <- c
 if (x <= 0) then { c <- 2 } else { c <- 1 }
 close c
@@ -111,22 +118,23 @@ close c
 
 // Paar 8 geschachtelte if -> equiv TRUE!
 var c chan int
-if b then { if b then c <- 1 else c <- 1 } else { c <- 2 }
+if * then { if * then c <- 1 else c <- 1 } else { c <- 2 }
 close c
 ---
 var c chan int
-if b then { c <- 1 } else { c <- 2 }
+if * then { c <- 1 } else { c <- 2 }
 close c
 ---
 
 // Paar 9 y wird in der if bedingung durch x>0 ersetzt! -> equiv TRUE!
 var c chan int
+var x int
 var y bool
-y := (x > 0)
 if y then { c <- 1 } else { c <- 2 }
 close c
 ---
 var c chan int
+var x int
 if (x > 0) then { c <- 1 } else { c <- 2 }
 close c
 ---
@@ -134,6 +142,7 @@ close c
 // Paar 10 noch ein cond-eta test mit dualität -> dual TRUE!
 var c1 chan int
 var c2 chan int
+var b bool
 if b then { 
     c1 <- 1
     c2 <- 1 
@@ -172,6 +181,7 @@ close c2
 
 // Paar 12 noch ein cond-eta test -> equiv TRUE!
 var c chan int
+var b bool
 if b then { c <- 1 } else { c <- 1 }
 c <- 2
 close c
@@ -184,9 +194,9 @@ close c
 
 // Paar 13 geschachtelte if test -> equiv TRUE!
 var c chan int
-if b then { 
+if * then { 
     c <- 1
-    if b then { c <- 3 } else { c <- 3 } 
+    if * then { c <- 3 } else { c <- 3 } 
 } else { 
     c <- 2
     c <- 3 
@@ -194,7 +204,7 @@ if b then {
 close c
 ---
 var c chan int
-if b then { c <- 1 } else { c <- 2 }
+if * then { c <- 1 } else { c <- 2 }
 c <- 3
 close c
 ---
@@ -216,6 +226,7 @@ close c1
 // Paar 15 skips beeinflussen den ST nicht, könnte äquivalent mit SMT solver sein? TODO -> equiv FALSE!
 var c1 chan int
 var c2 chan int
+var b bool
 if b then { 
     c1 <- 1
     close c1
@@ -239,12 +250,14 @@ close c2
 
 // Paar 16 geschachtelte if test -> equiv TRUe!
 var c chan int
+var x int
 x = <- c
 if (x > 0) then { c <- 1 } else { c <- 2 }
 if (x > 0) then { c <- 3 } else { c <- 4 }
 close c
 ---
 var c chan int
+var x int
 x = <- c
 if (x > 0) then { 
     c <- 1
@@ -265,8 +278,9 @@ var c chan int
 close c
 ---
 
-// Paar 18 ohne SMT solver nicht äquivalent -> equiv FALSE!
+// Paar 18 nicht äquivalent -> equiv FALSE!
 var c chan int
+var b bool
 if b then { 
     c <- 1
     c <- 2 
@@ -278,6 +292,7 @@ if b then {
 close c
 ---
 var c chan int
+var b bool
 if b then { 
     c <- 1
     c <- 2 
@@ -290,6 +305,7 @@ close c
 
 // Paar 19 then und else Zweige vertauscht -> equiv FALSE!
 var c chan int
+var x int
 x = <- c
 if (x == 0) then { 
     c <- 1 
@@ -300,6 +316,7 @@ if (x == 0) then {
 close c
 ---
 var c chan int
+var x int
 x = <- c
 if (x == 0) then { 
     c <- 1
@@ -312,7 +329,9 @@ close c
 
 // Paar 20 -> equiv TRUE!
 var c chan int
-if (b && (1 - b)) then { c <- 1 } else { c <- 2 }
+var b1 bool
+var b2 bool
+if (b1 && b2) then { c <- 1 } else { c <- 2 }
 close c
 ---
 // 20B: konstante else
@@ -339,6 +358,9 @@ close c2
 
 // Paar 22 wenn nur assignments in if, dann sind sie irrelevant für den ST und werden ignoriert -> equiv FALSE!
 var c chan int
+var b bool
+var x int
+var y int
 x = <- c
 y = <- c
 if b then { c <- x } else { skip }
@@ -346,6 +368,7 @@ close c
 ---
 var c chan int
 var x int
+var b bool
 c <- 0
 c <- 0
 if b then { x := 1 } else { skip }
@@ -356,6 +379,7 @@ close c
 var c chan int
 var x int
 var y int
+var b bool
 if b then { x := 1 } else { y := 1 }
 c <- x
 close c
@@ -364,6 +388,7 @@ var c chan int
 var x int
 var y int
 var z int
+var b bool
 if b then { x := y } else { x := z }
 c <- x
 close c
@@ -373,6 +398,7 @@ close c
 var c1 chan int
 var c2 chan int
 var c chan int
+var b bool
 if b then { c := c1 } else { c := c2 }
 c <- 1
 close c1
@@ -380,6 +406,7 @@ close c2
 ---
 var c1 chan int
 var c2 chan int
+var b bool
 if b then { c1 <- 1 } else { c2 <- 1 }
 close c1
 close c2
@@ -389,12 +416,14 @@ close c2
 var c1 chan int
 var c2 chan int
 var c chan int
+var b bool
 if b then { c = c1 } else { c = c2 }
 close c
 ---
 var c1 chan int
 var c2 chan int
 var c chan int
+var b bool
 if b then { c = c1 } else { c = c2 }
 if b then { close c1 } else { close c2 }
 ---
@@ -416,8 +445,8 @@ close c2
 ---
 
 // Paar 27 beide prozesse machen dasselbe, aber benutzen unterschiedliche Variablennamen -> equiv TRUE!
-var x chan int
-var y chan int
+var x int
+var y int
 var c1 chan int
 var c2 chan int
 x := <- c1
@@ -432,8 +461,8 @@ if x>0 then {
 close c1
 close c2
 ---
-var x chan int
-var y chan int
+var x int
+var y int
 var d1 chan int
 var d2 chan int
 x := <- d1
@@ -461,7 +490,7 @@ c2 <- 1
 close c2
 ---
 
-// Paar 29 Aliasing test, c wird zu c1 UND NICHT ZU C2!! -> equiv TRUE!
+// Paar 29 Aliasing test, c wird zu c1 (und nicht zu c2!) -> equiv TRUE!
 var c1 chan int
 var c2 chan int
 var c chan int
@@ -498,10 +527,10 @@ var z int
 var c chan int
 x = y
 y = z
-if x then c<-1 else c<-2
+if x>0 then c<-1 else c<-2
 ---
 var c chan int
-if b then c<-1 else c<-2
+if * then c<-1 else c<-2
 ---
 
 //Paar 32 x müsste zu y+1 werden, also `if y+1+1`
@@ -511,8 +540,7 @@ var z int
 var c chan int
 x = y + 1
 y = z + 2
-if x+1 then c<-1 else c<-2
+if x+1 > 0 then c<-1 else c<-2
 ---
 var c chan int
 c <-1
-

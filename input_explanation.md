@@ -337,6 +337,7 @@ DUAL : FALSE
 ```
 var c chan int
 var y bool
+var x int
 y := (x > 0)
 if y then { c <- 1 } else { c <- 2 }
 close c
@@ -1130,16 +1131,16 @@ close c
 ---
 var c1 chan int
 var c2 chan int
-c2 <- 2
+c1 <- 2
 close c2
 ```
 
 ```
 ST A:
-c2!;c2#
+c1!;c1#
 
 ST B:
-c2!;c2#
+c1!;c1#
 ```
 
 ```

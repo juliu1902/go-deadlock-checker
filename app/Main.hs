@@ -2,7 +2,7 @@
 
 module Main where
 
-import qualified Data.Map           as Map (empty, fromList)
+import qualified Data.Map           as Map (empty, fromList, lookup, toList)
 import           Datastructure
 import           Parser
 import           System.Environment (getArgs)
@@ -24,6 +24,15 @@ testDual s1 s2 = testEquiv (dual s1) s2
 
 
 -- Parses a program and returns its Session Type or an error if it couldn't be parsed
+buildST' :: String -> Either String (Statement, Context)
+buildST' src =
+  case runParser parseProgram "" src of
+    Left err -> Left (errorBundlePretty err)
+    Right (Program decs stmt) -> case stmtToST' (freshInitialContext (initialContext decs)) stmt of
+      Left err -> Left err
+      Right (st, ctxt) -> Right (st, ctxt)
+
+-- Parses a program and returns its Session Type or an error if it couldn't be parsed
 buildST :: String -> Either String (Statement, Context)
 buildST src =
   case runParser parseProgram "" src of
@@ -33,24 +42,33 @@ buildST src =
        in Right (st, ctxt)
 
 checkClosed :: Statement -> Either String ()
-checkClosed st = case checkClosedHelper st [] of
-  Right closedVars -> Right ()
-  Left err -> Left err
+checkClosed st =
+  case checkClosedHelper st [] of
+    Right closedVars -> Right ()
+    Left err         -> Left err
   where
     checkClosedHelper :: Statement -> [VarName] -> Either String [VarName]
-    checkClosedHelper st closedVars = case st of
-      Send v -> if v `elem` closedVars then Left "Send on closed channel." else Right closedVars
-      Receive v -> if v `elem` closedVars then Left "Receive on closed channel." else Right closedVars
-      End v -> Right (closedVars ++ [v])
-      Sequence s1 s2 -> do
-        firstClosed <- checkClosedHelper s1 closedVars
-        checkClosedHelper s2 firstClosed
-      If e s1 s2 -> do
-        case (checkClosedHelper s1 closedVars, checkClosedHelper s2 closedVars) of
-          (Right fvars, Right svars) -> Right (fvars ++ svars)
-          _ -> Left "Send/Receive on closed channel in If branch"
-      For fh s -> checkClosedHelper s closedVars
-      _ -> Right closedVars
+    checkClosedHelper st closedVars =
+      case st of
+        Send v ->
+          if v `elem` closedVars
+            then Left "Send on closed channel."
+            else Right closedVars
+        Receive v ->
+          if v `elem` closedVars
+            then Left "Receive on closed channel."
+            else Right closedVars
+        End v -> Right (closedVars ++ [v])
+        Sequence s1 s2 -> do
+          firstClosed <- checkClosedHelper s1 closedVars
+          checkClosedHelper s2 firstClosed
+        If e s1 s2 -> do
+          case ( checkClosedHelper s1 closedVars
+               , checkClosedHelper s2 closedVars) of
+            (Right fvars, Right svars) -> Right (fvars ++ svars)
+            _ -> Left "Send/Receive on closed channel in If branch"
+        For fh s -> checkClosedHelper s closedVars
+        _ -> Right closedVars
 
 -- creates a list of strings out of a long string where --- stands for a split
 splitAllByLine :: String -> [String]
@@ -90,7 +108,7 @@ main = do
 
 runCase :: Int -> (String, String) -> IO ()
 runCase i (srcA, srcB) =
-  case (buildST srcA, buildST srcB) of
+  case (buildST' srcA, buildST' srcB) of
     (Left e, _) ->
       die $ "Fehler beim Parsen/Typisieren von Block " ++ show i ++ "A:\n" ++ e
     (_, Left e) ->
