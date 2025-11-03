@@ -61,11 +61,10 @@ c1 ::= make (chan int)
 Type of c: `TChan CInt`
 Value of c: `Achan "c1"`
 ```
+var b bool
 var c1 chan int
 var c2 chan int
 var c chan int
-c1 ::= make (chan int) -- optional, only needed for ST visibility (new c1.) 
-c2 ::= make (chan int) -- optional, only needed for ST visibility (new c2.)
 if b then { c = c1 } else { c = c2 }
 ```
 Type of c: `TChan CInt`
