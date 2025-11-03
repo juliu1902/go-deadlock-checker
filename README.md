@@ -76,17 +76,5 @@ x ::= 0
 ```
 Type of x: `TInt`
 Value of x: `ATerm (EInt 0)`
-
-# functions overview
-
-### parseProgram
-- **Input:** Go source code as a string
-- **Output:** Program
-- **Purpose:** Parses a Go program into our internal `Program` datatype using Megaparsec. Can be executed with `runParser`
-
-### stmtToST
-- **Input:** Statement
-- **Output:** Session Type as string
-- **Purpose:** represents parsed Statements as Session Types/processes
   
 
