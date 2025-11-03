@@ -113,9 +113,9 @@ runCase :: Int -> (String, String) -> IO ()
 runCase i (srcA, srcB) =
   case (buildST' srcA, buildST' srcB) of
     (Left e, _) ->
-      die $ "Fehler bei Block " ++ show i ++ "A:\n" ++ e
+      die $ "Fehler in Block " ++ show i ++ "A:\n" ++ e
     (_, Left e) ->
-      die $ "Fehler bei Block " ++ show i ++ "B:\n" ++ e
+      die $ "Fehler in Block " ++ show i ++ "B:\n" ++ e
     (Right (stA, ctA), Right (stB, ctB)) -> do
       putStrLn $ "========== Paar " ++ show i ++ " =========="
       case checkClosed stA of
