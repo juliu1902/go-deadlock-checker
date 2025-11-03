@@ -27,10 +27,10 @@ testDual s1 s2 = testEquiv (dual s1) s2
 buildST' :: String -> Either String (Statement, Context)
 buildST' src =
   case runParser parseProgram "" src of
-    Left err -> Left (errorBundlePretty err)
+    Left err -> Left $ "Fehler beim Parsen: " ++ (errorBundlePretty err)
     Right (Program decs stmt) ->
       case stmtToST' (freshInitialContext (initialContext decs)) stmt of
-        Left err         -> Left err
+        Left err         -> Left $ "Fehler bei Typprüfung: " ++ err
         Right (st, ctxt) -> Right (st, ctxt)
 
 
@@ -113,9 +113,9 @@ runCase :: Int -> (String, String) -> IO ()
 runCase i (srcA, srcB) =
   case (buildST' srcA, buildST' srcB) of
     (Left e, _) ->
-      die $ "Fehler beim Parsen/Typisieren von Block " ++ show i ++ "A:\n" ++ e
+      die $ "Fehler bei Block " ++ show i ++ "A:\n" ++ e
     (_, Left e) ->
-      die $ "Fehler beim Parsen/Typisieren von Block " ++ show i ++ "B:\n" ++ e
+      die $ "Fehler bei Block " ++ show i ++ "B:\n" ++ e
     (Right (stA, ctA), Right (stB, ctB)) -> do
       putStrLn $ "========== Paar " ++ show i ++ " =========="
       case checkClosed stA of
