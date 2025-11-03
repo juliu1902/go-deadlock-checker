@@ -36,11 +36,11 @@ Assignments    := identifier ':=' ( number | identifier | Expr ) ; // allowed ev
 
 - `|`= 'or'
 
-- Weird expressions like `true + false`,`1<false`, `42 && x` allowed.
-- whitespaces and tabs are allowed everywhere as long 
+- Weird expressions like `true + false`,`1<false`, `42 && x` allowed but fail the typecheck.
+- whitespaces and tabs are allowed everywhere
 - assignments allowed between statements
 
-- Skip is technically parsed and allowed where a Statement is also allowed, but it's only functional inside an If.
+- Skip is technically parsed and allowed where a Statement is also allowed, but it's only "functional" inside an If.
 
 # Channels
 ### Naming
