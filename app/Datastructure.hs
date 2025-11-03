@@ -342,12 +342,7 @@ typeCheck ctxt =
                   case ( checkTypeOfExpression TInt e1 ctxt
                        , checkTypeOfExpression TInt e2 ctxt) of
                     (True, True) -> typeCheck (Map.fromList rest)
-                    (False, True) ->
-                      Left
-                        $ "erster ausdruck vor < kein Int erkannt" ++ show ctxt
-                    (True, False) ->
-                      Left "zweiter ausdruck nach < kein Int erkannt"
-                    _ -> Left "komplett verkackt"
+                    _ -> Left "no int detected in comparison"
             ATerm _ ->
               Left $ "Type error: variable " ++ show var ++ " not of type Bool."
             AUnknown -> typeCheck (Map.fromList rest)
