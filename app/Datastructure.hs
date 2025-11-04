@@ -175,6 +175,7 @@ stmtToST ctxt st =
 
 
 -- evaluates conditions and considers the context when there is a send/receive
+
 stmtToST' :: Context -> Statement -> Either String (Statement, Context)
 stmtToST' ctxt st =
   case st of
@@ -605,10 +606,8 @@ freshChannel = do
 
 -- in the beginning all the Abstract Values are unknown
 initialContext :: VarDecs -> Context
-initialContext decs = Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs]
+initialContext decs = freshInitialContext (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs])
 
-
--- except for the channel type annotations in the beginning:
 -- var chan int/bool should automatically create fresh channels with unique channelID
 freshInitialContext :: Context -> Context
 freshInitialContext initialc = evalState (traverse freshOne initialc) 0
@@ -782,7 +781,7 @@ testEquivalence s t =
     _ -> False
 
 
--- generates the unique channelID names
+-- generates the unique variable names
 freshName :: FreshM VarName
 freshName = do
   n <- get

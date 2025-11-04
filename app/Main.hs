@@ -29,7 +29,7 @@ buildST' src =
   case runParser parseProgram "" src of
     Left err -> Left $ "Fehler beim Parsen: " ++ (errorBundlePretty err)
     Right (Program decs stmt) ->
-      case stmtToST' (freshInitialContext (initialContext decs)) stmt of
+      case stmtToST' (initialContext decs) stmt of
         Left err         -> Left $ "Fehler bei Typprüfung: " ++ err
         Right (st, ctxt) -> Right (st, ctxt)
 
