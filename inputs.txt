@@ -71,7 +71,7 @@ close c1
 close c2
 ---
 
-// Paar 5 auf c schreiben nach close c erlaubt?? TODO -> equiv FALSE!
+// Paar 5 auf c schreiben nach close c nicht erlaubt -> equiv FALSE!
 var c chan int
 c <- 1
 close c
