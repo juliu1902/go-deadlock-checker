@@ -490,7 +490,6 @@ checkTypeOfExpression expectedType expr ctxt =
                         && checkTypeOfExpression TFloat e2 ctxt
             else False
 
-
 -- evaluates an expression based on the current context
 -- only really relevant for expressions that are variables
 evalExpr :: Expr -> Context -> Expr
@@ -703,6 +702,9 @@ strip (If e s1 s2) =
     (s1', s2')   -> If e s1' s2'
 strip x = x
 
+-- (s1;s2);s3 ~ s1;(s2;s3)
+-- s;skip ~ s
+-- skip;s ~ s
 assocIdRules :: Statement -> Statement
 assocIdRules (Sequence (Skip) s)            = s
 assocIdRules (Sequence s (Skip))            = s
@@ -711,6 +713,7 @@ assocIdRules x                              = x
 
 
 -- idFor not necessary, becomes skip by calling strip function
+-- cond-eta: if (e) {s}{s} ~ s
 condEta :: Statement -> Statement
 condEta (If e s1 s2) =
   if s1 == s2
@@ -739,6 +742,7 @@ repeatApply f stmt =
 phaseA :: Statement -> Statement
 phaseA stmt = repeatApply applyFirstLevel stmt
 
+-- if (e) {s1}{s2};s ~ if (e) {s1;s}{s2;s}
 condDist :: Statement -> Statement
 condDist (Sequence (If e s1 s2) s) = If e (Sequence s1 s) (Sequence s2 s)
 condDist x                         = x
