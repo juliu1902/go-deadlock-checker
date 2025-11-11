@@ -66,7 +66,7 @@ type VarDecs = [VarDec]
 data AbstractVal
   = AChan ChannelID -- Kanalname
   | AIf Expr AbstractVal AbstractVal -- eine Auswahl zwischen verschiedenen Abstract Values
-  | ATerm Expr -- Ein Ausdruck, der definitiv keinen Kanal enthält
+  | ATerm Expr -- Ein Ausdruck
   | AUnknown -- noch unbekannt
   deriving (Show)
 
