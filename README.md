@@ -4,30 +4,29 @@ A static deadlock detection tool for (limited) Go programs. Written in Haskell a
 # supported GO-Syntax
 ```
 Program        := { Declaration } { Statement } ;
-Declaration    := var x int|bool|chan int|chan bool ;
-Statement      := Send | Receive | End | If | For | Skip ;
-New Channel    := make (chan int|bool) ;
-Skip           := 'skip' ;
-Send           := identifier '<-' Expr ;
+
+Declaration    := var identifier (int|bool) | chan (int|bool);
+
+Statement      := Send | Receive | End | If | Skip | Assign ;
+Send           := identifier '<-' (Expr | identifier) ;
 Receive        := identifier '= <-' identifier ;
 End            := 'close' identifier ;
+If             := 'if' Expr 'then' ( Block | Statement ) 'else' ( Block | Statement ) ;
+Skip           := 'skip' ;
+Assign         := identifier ':=' Expr ;
 
-If             := 'if' Expr 'then' ( Block | Statement )
-                  'else' ( Block | Statement ) ; // a single statement doesn't need to be wrapped in {}
-
-For            := 'for' Expr Block ; // single statement needs to be wrapped in {}
 
 Block          := '{' Statement '}' ;
-
-Expr           := Atom { Op Atom } ;  // left asssociative and no * before + etc.
-Atom           := Bool | Number | identifier ;
-Bool           := 'true' | 'false' ;
-Op             := '+' | '-' | '*' | '/' | '%' | '>=' | '<=' | '==' | '!=' | '>' | '<' | '&&' ;
-
+Expr           := BinOp | Var | bool | int ;
+BinOp					 := Expr ('+' | '-' | '*' | '/' | '%' | '>=' | '<=' | '==' | '!=' | '>' | '<' | '&&' | '||') Expr ;
+Var						 := identifier
+bool           := 'true' | 'false' ;
+int						 := {'0'..'9'};
 identifier     := ( 'a'..'z' | '_' ) { 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' } ; 
-number         := signed-integer | signed-float ;
-Comments       := '//' | '/*' ... '*/' ; // allowed everywhere
-Assignments    := identifier ':=' ( number | identifier | Expr ) ; // allowed everywgere
+
+
+Comments       := '//' | '/*' ... '*/' ;
+New Channel    := make (chan (int|bool)) ;
 ```
 
 ##### Notes:
