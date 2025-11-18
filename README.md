@@ -18,10 +18,10 @@ Assign         := identifier ':=' Expr ;
 
 Block          := '{' Statement '}' ;
 Expr           := BinOp | Var | bool | int ;
-BinOp					 := Expr ('+' | '-' | '*' | '/' | '%' | '>=' | '<=' | '==' | '!=' | '>' | '<' | '&&' | '||') Expr ;
-Var						 := identifier
+BinOp		   := Expr ('+' | '-' | '*' | '/' | '%' | '>=' | '<=' | '==' | '!=' | '>' | '<' | '&&' | '||') Expr ;
+Var		       := identifier ;
 bool           := 'true' | 'false' ;
-int						 := {'0'..'9'};
+int		       := {'0'..'9'} ;
 identifier     := ( 'a'..'z' | '_' ) { 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' } ; 
 
 
@@ -35,10 +35,8 @@ New Channel    := make (chan (int|bool)) ;
 
 - `|`= 'or'
 
-- Weird expressions like `true + false`,`1<false`, `42 && x` allowed but fail the typecheck.
 - whitespaces and tabs are allowed everywhere
-- assignments allowed between statements
-
+- comments are allowed
 - Skip is technically parsed and allowed where a Statement is also allowed, but it's only "functional" inside an If.
 
 # Channels
