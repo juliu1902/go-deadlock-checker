@@ -65,7 +65,7 @@ numberParser = try parseFloat <|> parseInt
 boolParser :: Parser Expr
 boolParser = do
   spaceConsumer
-  b <- string "true" >> return True <|> (string "false" >> return False)
+  b <- try (string "true" >> return True) <|> (string "false" >> return False)
   spaceConsumer
   return $ EBool b
 
@@ -120,7 +120,6 @@ parensExpr = do
   spaceConsumer
   pure e
 
-
 -- "Term": Werte, Variablen oder geklammert
 term :: Parser Expr
 term =
@@ -130,7 +129,9 @@ term =
 -- Operator table für die makeExprParser funktion
 table :: [[Operator Parser Expr]]
 table =
-  [ [Prefix (singleSymbol "-" >> return (EBinOp Sub (EInt 0)))] -- highest precedence
+  [ [ Prefix (singleSymbol "!" >> return ENot )
+    , Prefix (singleSymbol "-" >> return (EBinOp Sub (EInt 0)))
+    ] -- highest precedence
   , [ InfixL (singleSymbol "*" >> return (EBinOp Mul))
     , InfixL (singleSymbol "/" >> return (EBinOp Div))
     , InfixL (singleSymbol "%" >> return (EBinOp Mod))

@@ -10,6 +10,15 @@ import           System.Exit        (die)
 import           Text.Megaparsec
 
 
+-- -- Are s1 and s2 equivalent?
+-- testEquiv :: Statement -> Statement -> IO Bool
+-- testEquiv s1 s2 =
+--   testEquivalence' [] (canonicalizeChannelNames (normalizeST s1) Map.empty) (canonicalizeChannelNames (normalizeST s2) Map.empty)
+--
+--
+-- -- Is s1 dual to s2?
+-- testDual :: Statement -> Statement -> IO Bool
+-- testDual s1 s2 = testEquiv (dual s1) s2
 -- Are s1 and s2 equivalent?
 testEquiv :: Statement -> Statement -> Bool
 testEquiv s1 s2 =
@@ -17,31 +26,32 @@ testEquiv s1 s2 =
     (canonicalizeChannelNames (normalizeST s1) Map.empty)
     (canonicalizeChannelNames (normalizeST s2) Map.empty)
 
-
--- Is s1 dual to s2?
 testDual :: Statement -> Statement -> Bool
 testDual s1 s2 = testEquiv (dual s1) s2
 
 
 -- Parses a program and returns its Session Type or an error if it couldn't be parsed
-buildST' :: String -> Either String (Statement, Context)
+buildST' :: String -> IO (Either String (Statement, Context))
 buildST' src =
   case runParser parseProgram "" src of
-    Left err -> Left $ "Fehler beim Parsen: " ++ (errorBundlePretty err)
-    Right (Program decs stmt) ->
-      case stmtToST' (initialContext decs) stmt of
-        Left err         -> Left $ "Fehler bei Typprüfung: " ++ err
-        Right (st, ctxt) -> Right (st, ctxt)
+    Left err ->
+      return (Left $ "Fehler beim Parsen: " ++ (errorBundlePretty err))
+    Right (Program decs stmt) -> do
+      st <- stmtToST' (initialContext decs) stmt
+      case st of
+        Left err         -> return (Left $ "Fehler bei Typprüfung: " ++ err)
+        Right (st, ctxt) -> return (Right (st, ctxt))
 
 
 -- Parses a program and returns its Session Type or an error if it couldn't be parsed
-buildST :: String -> Either String (Statement, Context)
+buildST :: String -> IO (Either String (Statement, Context))
 buildST src =
   case runParser parseProgram "" src of
-    Left err -> Left (errorBundlePretty err)
-    Right (Program decs stmt) ->
-      let (st, ctxt) = stmtToST (freshInitialContext (initialContext decs)) stmt
-       in Right (st, ctxt)
+    Left err -> return (Left (errorBundlePretty err))
+    Right (Program decs stmt) -> do
+      let ctxt0 = freshInitialContext (initialContext decs)
+      (st, ctxt) <- stmtToST ctxt0 stmt
+      return (Right (st, ctxt))
 
 checkClosed :: Statement -> Either String ()
 checkClosed st =
@@ -110,12 +120,12 @@ main = do
     Right ps -> mapM_ (uncurry runCase) (zip [1 ..] ps)
 
 runCase :: Int -> (String, String) -> IO ()
-runCase i (srcA, srcB) =
-  case (buildST' srcA, buildST' srcB) of
-    (Left e, _) ->
-      die $ "Fehler in Block " ++ show i ++ "A:\n" ++ e
-    (_, Left e) ->
-      die $ "Fehler in Block " ++ show i ++ "B:\n" ++ e
+runCase i (srcA, srcB) = do
+  st1 <- buildST' srcA
+  st2 <- buildST' srcB
+  case (st1, st2) of
+    (Left e, _) -> die $ "Fehler in Block " ++ show i ++ "A:\n" ++ e
+    (_, Left e) -> die $ "Fehler in Block " ++ show i ++ "B:\n" ++ e
     (Right (stA, ctA), Right (stB, ctB)) -> do
       putStrLn $ "========== Paar " ++ show i ++ " =========="
       case checkClosed stA of
@@ -143,7 +153,11 @@ runCase i (srcA, srcB) =
            ++ prettyPrintST
                 (canonicalizeChannelNames (normalizeST stB) Map.empty))
       putStrLn "\nTests:"
+      --equivalenceTest <- testEquiv stA stB
+      --dualTestOne <- testDual stA stB
+      --dualTestTwo <- testDual stB stA
+      --putStrLn ("dual (A) ~ B?  " ++ show dualTestOne)
       putStrLn ("A ~ B?        " ++ show (testEquiv stA stB))
-      putStrLn ("A ~ dual(B)?  " ++ show (testDual stA stB))
-      putStrLn ("dual(A) ~ B?  " ++ show (testDual stB stA))
+      putStrLn ("dual (A) ~ B?  " ++ show (testDual stA stB))
+      putStrLn ("dual(B) ~ A?  " ++ show (testDual stB stA))
       putStrLn ""
