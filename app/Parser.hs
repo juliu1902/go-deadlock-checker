@@ -108,6 +108,24 @@ parseVarDecs = do
   varDecParser `sepEndBy` spaceConsumer
 
 
+parameterParser :: Parser VarDec
+parameterParser = do
+  spaceConsumer
+  v <- identifier
+  ty <- parseVarTypes
+  return (VarName v, ty)
+
+headerParser :: Parser VarDecs
+headerParser = do
+  spaceConsumer
+  _ <- string "foo"
+  spaceConsumer
+  _ <- identifier
+  spaceConsumer
+  _ <- char '('
+  decs <- parameterParser `sepEndBy` string ", "
+  return decs
+
 -- ( ... )-Ausdrücke
 parensExpr :: Parser Expr
 parensExpr = do

@@ -42,17 +42,6 @@ buildST' src =
         Left err         -> return (Left $ "Fehler bei Typprüfung: " ++ err)
         Right (st, ctxt) -> return (Right (st, ctxt))
 
-
--- Parses a program and returns its Session Type or an error if it couldn't be parsed
-buildST :: String -> IO (Either String (Statement, Context))
-buildST src =
-  case runParser parseProgram "" src of
-    Left err -> return (Left (errorBundlePretty err))
-    Right (Program decs stmt) -> do
-      let ctxt0 = freshInitialContext (initialContext decs)
-      (st, ctxt) <- stmtToST ctxt0 stmt
-      return (Right (st, ctxt))
-
 checkClosed :: Statement -> Either String ()
 checkClosed st =
   case checkClosedHelper st [] of
