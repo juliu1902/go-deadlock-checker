@@ -94,6 +94,7 @@ parseVarTypes = do
           _ <- string "bool"
           return CBool
 
+
 varDecParser :: Parser VarDec
 varDecParser = do
   spaceConsumer
@@ -118,12 +119,14 @@ parameterParser = do
 headerParser :: Parser VarDecs
 headerParser = do
   spaceConsumer
-  _ <- string "foo"
+  _ <- string "func"
   spaceConsumer
   _ <- identifier
   spaceConsumer
   _ <- char '('
   decs <- parameterParser `sepEndBy` string ", "
+  spaceConsumer
+  _ <- char ')'
   return decs
 
 -- ( ... )-Ausdrücke
@@ -357,6 +360,11 @@ parseStatement = do
 
 parseProgram :: Parser Program
 parseProgram = do
-  decs <- parseVarDecs
+  decs <- headerParser
+  spaceConsumer
+  _ <- char '{'
+  spaceConsumer
   stmt <- parseStatement
+  spaceConsumer
+  _ <- char '}'
   return (Program decs stmt)
