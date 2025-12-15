@@ -95,19 +95,14 @@ parseVarTypes = do
           return CBool
 
 
-varDecParser :: Parser VarDec
+varDecParser :: Parser Statement
 varDecParser = do
   spaceConsumer
   _ <- string "var"
   spaceConsumer
   v <- identifier
   ty <- parseVarTypes
-  return (VarName v, ty)
-
-parseVarDecs :: Parser VarDecs
-parseVarDecs = do
-  varDecParser `sepEndBy` spaceConsumer
-
+  return $ Declare (VarName v) ty
 
 parameterParser :: Parser VarDec
 parameterParser = do
@@ -185,6 +180,7 @@ parseSingleStatement = do
     <|> try parseSend
     <|> try parseSkip
     <|> try parseFor
+    <|> try varDecParser
     <|> parseIf
 
 parseMakeChanName :: Parser String

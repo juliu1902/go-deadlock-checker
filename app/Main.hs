@@ -2,7 +2,7 @@
 
 module Main where
 
-import qualified Data.Map           as Map (empty, fromList, lookup, toList)
+import qualified Data.Map           as Map (empty, fromList, lookup, toList, union)
 import           Datastructure
 import           Parser
 import           System.Environment (getArgs)
@@ -29,7 +29,6 @@ testEquiv s1 s2 =
 testDual :: Statement -> Statement -> Bool
 testDual s1 s2 = testEquiv (dual s1) s2
 
-
 -- Parses a program and returns its Session Type or an error if it couldn't be parsed
 buildST' :: String -> IO (Either String (Statement, Context))
 buildST' src =
@@ -37,7 +36,7 @@ buildST' src =
     Left err ->
       return (Left $ "Fehler beim Parsen: " ++ (errorBundlePretty err))
     Right (Program decs stmt) -> do
-      st <- stmtToST' (initialContext decs) stmt
+      st <- stmtToST' (initialContext stmt decs) stmt
       case st of
         Left err         -> return (Left $ "Fehler bei Typprüfung: " ++ err)
         Right (st, ctxt) -> return (Right (st, ctxt))
@@ -132,6 +131,9 @@ runCase i (srcA, srcB) = do
       putStrLn "\nNormalformen:"
       putStrLn ("A: " ++ prettyPrintST (normalizeST stA))
       putStrLn ("B: " ++ prettyPrintST (normalizeST stB))
+      putStrLn "\n Normalformen für die testEquivalence'"
+      putStrLn ("A: " ++ prettyPrintST (normalizeST' stA))
+      putStrLn ("B: " ++ prettyPrintST (normalizeST' stB))
       putStrLn "\nNormalform mit kanonisierte Variablenbenennung"
       putStrLn
         ("Canonized A: "
@@ -146,7 +148,8 @@ runCase i (srcA, srcB) = do
       --dualTestOne <- testDual stA stB
       --dualTestTwo <- testDual stB stA
       --putStrLn ("dual (A) ~ B?  " ++ show dualTestOne)
-      putStrLn ("A ~ B?        " ++ show (testEquiv stA stB))
-      putStrLn ("dual (A) ~ B?  " ++ show (testDual stA stB))
-      putStrLn ("dual(B) ~ A?  " ++ show (testDual stB stA))
+      putStrLn ("OLD A ~ B?        " ++ show (testEquiv stA stB))
+      putStrLn ("OLD dual (A) ~ B?  " ++ show (testDual stA stB))
+      resEquiv <- (testEquivalence' (Map.union ctA ctB) [] (canonicalizeChannelNames (normalizeST stA) Map.empty) (canonicalizeChannelNames (normalizeST stB) Map.empty))
+      putStrLn ("A ~ B?" ++  show resEquiv)
       putStrLn ""

@@ -5,12 +5,13 @@ import           Control.Monad.State
 import qualified Data.List           as List
 import qualified Data.Map            as Map (Map, delete, deleteMin, empty,
                                              fromList, insert, lookup,
-                                             lookupMin, map, mapWithKey, toList)
+                                             lookupMin, map, mapWithKey, toList,
+                                             union)
 import           Data.SBV            (SBV, SBool, SInteger, SMTResult (..),
                                       SatResult (..), Symbolic, literal, runSMT,
                                       sBool, sDiv, sInteger, sMod, sNot, sTrue,
                                       sat, (.&&), (.<), (.<=), (.==), (.>),
-                                      (.>=), (.||))
+                                      (.>=), (.||), free, ite)
 
 data Statement
   = New VarName Statement
@@ -23,6 +24,7 @@ data Statement
   | For ForHeader Statement
   | Assign VarName Expr
   | Go Statement Statement
+  | Declare VarName VarType
   deriving (Show, Eq)
 
 
@@ -153,6 +155,15 @@ stmtToST' ctxt st =
       case res of
         Right (s', ctxt') -> return (Right (New c s', ctxt'))
         Left err          -> return (Left err)
+    Declare v t -> do
+      case t of
+        t@(TChan _) -> return $ Right (Declare v t, ctxt) -- declarations of channels are already handled in contextFromStatement
+        _ ->
+          case typeCheck (Map.insert v (t, AUnknown) ctxt) -- logic could added here to prevent redeclaring a variable that has already been declared
+                of
+            Right _ ->
+              return $ Right (Declare v t, (Map.insert v (t, AUnknown) ctxt))
+            Left err -> return $ Left err
     Sequence s1 s2 -> do
       res1 <- stmtToST' ctxt s1
       case res1 of
@@ -614,6 +625,7 @@ prettyPrintST x =
     Go s1 s2 ->
       "go" ++ "{" ++ prettyPrintST s1 ++ "}" ++ "{" ++ prettyPrintST s2 ++ "}"
     Assign _ _ -> ""
+    Declare _ _ -> ""
     For (ForHeaderRunning var start e incdec) s ->
       "for "
         ++ "("
@@ -651,9 +663,21 @@ freshChannel = do
 
 
 -- in the beginning all the Abstract Values are unknown
-initialContext :: VarDecs -> Context
-initialContext decs =
-  freshInitialContext (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs])
+initialContext :: Statement -> VarDecs -> Context
+initialContext stmt decs =
+  freshInitialContext
+    $ (Map.union
+         (extractContextFromStatement stmt Map.empty)
+         (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs]))
+
+extractContextFromStatement :: Statement -> Context -> Context
+extractContextFromStatement (Declare v t@(TChan _)) ctxt =
+  Map.insert v (t, AUnknown) ctxt
+extractContextFromStatement (Sequence s1 s2) ctxt =
+  extractContextFromStatement
+    s2
+    (Map.union (extractContextFromStatement s1 ctxt) ctxt)
+extractContextFromStatement _ ctxt = ctxt
 
 
 -- var chan int/bool should automatically create fresh channels with unique channelID
@@ -818,6 +842,10 @@ normalizeST stmt = normalize (strip stmt)
             then stmtA -- Nein, dann keine Regel mehr anwendbar
             else normalize stmtB -- Ja, dann einmal cond-dist und wieder assoc, id, cond-eta usw bis keine dieser Regeln mehr anwendbar ist"
 
+normalizeST' :: Statement -> Statement
+normalizeST' stmt = normalize (strip stmt)
+  where
+    normalize stmt = phaseA stmt
 
 -- can test the equivalence of two normalized Statements!
 testEquivalence :: Statement -> Statement -> Bool
@@ -834,6 +862,165 @@ testEquivalence s t =
       e == e' && testEquivalence s1 s2 && testEquivalence s3 s4
   -- else false
     _ -> False
+
+
+-- Is an expression always true under the given assumptions?
+entails :: Context -> [Expr] -> Expr -> IO Bool
+entails ctxt assumptions expr = do
+  -- Prüfen ob (assumptions AND NOT expr) unerfüllbar ist
+  let negatedExpr = ENot expr
+      allAssumptions = assumptions ++ [negatedExpr]
+      conjunctiveFormula =
+        foldr (\x y -> EBinOp And x y) (EBool True) allAssumptions
+  result <- checkSatForEquiv conjunctiveFormula ctxt
+  return (isUnsat result)
+
+
+--data Expr
+--  = EVar VarName
+--  | EBool Bool
+--  | EInt Integer
+--  | EFloat Double
+--  | EBinOp BinOp Expr Expr
+--  | ENot Expr
+--  deriving (Eq)
+testEquivalence' :: Context -> [Expr] -> Statement -> Statement -> IO Bool
+testEquivalence' ctxt assumptions s1 s2 =
+  case (s1, s2) of
+    (Send x, Send y) -> return $ x == y -- atom-send
+    (Receive x, Receive y) -> return $ x == y -- atom-recv
+    (End x, End y) -> return $ x == y -- atom-end
+  -- SEQ-SEND
+    (Sequence (Send x) s1, Sequence (Send y) s2) -> do
+      res <- testEquivalence' ctxt assumptions s1 s2
+      return $ x == y && res
+  -- SEQ-RECV
+    (Sequence (Receive x) s1, Sequence (Receive y) s2) -> do
+      res <- testEquivalence' ctxt assumptions s1 s2
+      return $ x == y && res
+  -- SEQ-END
+    (Sequence (End x) s1, Sequence (End y) s2) -> do
+      res <- testEquivalence' ctxt assumptions s1 s2
+      return $ x == y && res
+  -- CONDS
+    (Sequence (If e s1 s2) s0, s) -> do
+      resEntails <- entails ctxt assumptions e
+      case resEntails of
+      --COND-LEFT-THEN
+        True -> testEquivalence' ctxt assumptions (Sequence s1 s0) s
+        False -> do
+          resEntails2 <- entails ctxt assumptions (ENot e)
+          case resEntails2 of
+          -- COND-LEFT-ELSE
+            True -> testEquivalence' ctxt assumptions (Sequence s2 s0) s
+          -- COND-LEFT-SPLIT
+            False -> do
+              satE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) e assumptions) ctxt
+              satNotE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) (ENot e) assumptions) ctxt
+              let thenOK = not (isUnsat satE)
+                  elseOK = not (isUnsat satNotE)
+              case (thenOK, elseOK) of
+                (True, True) -> do 
+                  r1 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) (Sequence s1 s0) s
+                  r2 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) (Sequence s2 s0) s
+                  return (r1 && r2)
+                (False, True) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) (Sequence s2 s0) s
+                  return res
+                (True, False) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) (Sequence s1 s0) s
+                  return $ res
+                _ -> testEquivalence' ctxt assumptions s0 s
+    (s, Sequence (If e s1 s2) s0) -> do
+      resEntails <- entails ctxt assumptions e
+      case resEntails of
+      --COND-RIGHT-THEN
+        True -> testEquivalence' ctxt assumptions s (Sequence s1 s0)
+        False -> do
+          resEntails2 <- entails ctxt assumptions (ENot e)
+          case resEntails2 of
+          -- COND-RIGHT-ELSE
+            True -> testEquivalence' ctxt assumptions s (Sequence s2 s0)
+          -- COND-RIGHT-SPLIT
+            False -> do
+              satE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) e assumptions) ctxt
+              satNotE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) (ENot e) assumptions) ctxt
+              let thenOK = not (isUnsat satE)
+                  elseOK = not (isUnsat satNotE)
+              case (thenOK, elseOK) of
+                (True, True) -> do 
+                  r1 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) s (Sequence s1 s0) 
+                  r2 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) s (Sequence s2 s0) 
+                  return (r1 && r2)
+                (False, True) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) s (Sequence s2 s0) 
+                  return res
+                (True, False) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) s (Sequence s1 s0) 
+                  return $ res
+                _ -> testEquivalence' ctxt assumptions s0 s
+    (If e s1 s2, s) -> do
+      resEntails <- entails ctxt assumptions e
+      case resEntails of
+      --COND-LEFT-THEN
+        True -> testEquivalence' ctxt assumptions s1 s
+        False -> do
+          resEntails2 <- entails ctxt assumptions (ENot e)
+          case resEntails2 of
+          -- COND-LEFT-ELSE
+            True -> testEquivalence' ctxt assumptions s2 s
+          -- COND-LEFT-SPLIT
+            False -> do
+              satE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) e assumptions) ctxt
+              satNotE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) (ENot e) assumptions) ctxt
+              let thenOK = not (isUnsat satE)
+                  elseOK = not (isUnsat satNotE)
+              case (thenOK, elseOK) of
+                (True, True) -> do 
+                  r1 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) s1 s
+                  r2 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) s2 s
+                  return (r1 && r2)
+                (False, True) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) s2 s
+                  return res
+                (True, False) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) s1 s
+                  return $ res
+                _ -> return $ False
+    (s, If e s1 s2) -> do
+      resEntails <- entails ctxt assumptions e
+      case resEntails of
+      --COND-LEFT-THEN
+        True -> testEquivalence' ctxt assumptions s s1 
+        False -> do
+          resEntails2 <- entails ctxt assumptions (ENot e)
+          case resEntails2 of
+          -- COND-LEFT-ELSE
+            True -> testEquivalence' ctxt assumptions s s2 
+          -- COND-LEFT-SPLIT
+            False -> do
+              satE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) e assumptions) ctxt
+              satNotE <- checkSatForEquiv (foldr (\x y -> EBinOp And x y) (ENot e) assumptions) ctxt
+              let thenOK = not (isUnsat satE)
+                  elseOK = not (isUnsat satNotE)
+              case (thenOK, elseOK) of
+                (True, True) -> do 
+                  r1 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) s s1 
+                  r2 <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) s s2
+                  return (r1 && r2)
+                (False, True) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq (ENot e) (EBool True)]) s s2 
+                  return res
+                (True, False) -> do
+                  res <- testEquivalence' ctxt (assumptions ++ [EBinOp Eq e (EBool True)]) s s1 
+                  return $ res
+                _ -> return False
+    (Skip, Skip) -> return True
+    (Sequence s1 Skip, s) -> testEquivalence' ctxt assumptions s1 s
+    (Sequence Skip s1, s) -> testEquivalence' ctxt assumptions s1 s
+    (s, Sequence s1 Skip) -> testEquivalence' ctxt assumptions s1 s
+    (s, Sequence Skip s1) -> testEquivalence' ctxt assumptions s1 s
+    _ -> return $ False
 
 
 -- generates the unique variable names
@@ -894,38 +1081,180 @@ hasVars (EBinOp _ e1 e2) = hasVars e1 || hasVars e2
 hasVars (ENot e)         = hasVars e
 hasVars _                = False
 
-expressionToSymbolic :: Expr -> Context -> Symbolic SBVal
-expressionToSymbolic expr ctxt =
+
+varsInExpr :: Expr -> [VarName]
+varsInExpr e = List.nub (go e)
+  where
+    go (EVar v)         = [v]
+    go (EBinOp _ a b)   = go a ++ go b
+    go (ENot a)         = go a
+    go _                = []
+
+mkEnv :: Expr -> Context -> Symbolic SMTEnv
+mkEnv e ctxt = do
+  let vs = varsInExpr e
+  pairs <- mapM mkOne vs
+  return (Map.fromList pairs)
+  where
+    mkOne v =
+      case lookupType v ctxt of
+        Just TInt  -> do sv <- sInteger (show v)
+                         return (v, SBVInt sv)
+        Just TBool -> do sv <- sBool (show v)
+                         return (v, SBVBool sv)
+        Nothing ->
+          if v == VarName "*"
+            then do sv <- sBool "*"
+                    return (v, SBVBool sv)
+            else error ("variable has no type: " ++ show v)
+
+
+expressionToSymbolicForEquiv :: SMTEnv -> Expr -> Context -> Symbolic SBVal
+expressionToSymbolicForEquiv env expr ctxt =
   case expr of
-    EBool b -> return (SBVBool $ literal b) -- expression ist eine bool -> SBool
-    EInt n -> return (SBVInt $ literal n) -- expression ist ein int -> SInteger
-    EVar x -- expression ist eine Variable
-     ->
-      case lookupAV x ctxt of
-        ATerm e
-          | not (hasVars e) -- und diese Variable verweist NICHT auf andere Variablen
-           -> expressionToSymbolic e ctxt -- Dann wird einfach x ersetzt durch das, wofür x steht, also e
-        -- AIf e s1 s2 fehlt!!! TODO
-        _ -- und wenn diese Variable x doch auf min. eine andere variable verweist,
-         ->
-          case lookupType x ctxt of
-            -- dann wird einfach eine Symbolic Variable x erstellt, die entweder SInt oder SBool ist
-            Just TInt -> SBVInt <$> sInteger (show x)
-            Just TBool -> SBVBool <$> sBool (show x)
-            -- falls für x gar kein eintrag im kontext ist,
-            Nothing ->
-              if x == VarName "*"
-                then SBVBool <$> sBool "*"
-                else error "variable has no type" -- oder wir können keinen type für x finden
-              -- dann ist x entweder unsere wildcard
+    EBool b -> return (SBVBool $ literal b)
+    EInt n -> return (SBVInt $ literal n)
+    EVar x ->
+      case Map.lookup x env of
+        Just v  -> return v
+        Nothing -> error ("SMTEnv missing var: " ++ show x)
     ENot e -> do
-      val <- expressionToSymbolic e ctxt
+      val <- expressionToSymbolicForEquiv env e ctxt
       case val of
         SBVBool b -> return (SBVBool (sNot b))
         _         -> error "negating non-bool expression"
     EBinOp op e1 e2 -> do
-      first <- expressionToSymbolic e1 ctxt
-      second <- expressionToSymbolic e2 ctxt
+      first <- expressionToSymbolicForEquiv env e1 ctxt
+      second <- expressionToSymbolicForEquiv env e2 ctxt
+      case op of
+        And ->
+          case (first, second) of
+            (SBVBool b1, SBVBool b2) -> return (SBVBool (b1 .&& b2))
+            _ ->
+              error
+                "at least one of the expressions of _ && _ might not be of type bool"
+        Or ->
+          case (first, second) of
+            (SBVBool b1, SBVBool b2) -> return (SBVBool (b1 .|| b2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type bool"
+        Lt ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 .< v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+        Gt ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 .> v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+        Le ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 .<= v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+        Ge ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 .>= v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+        Eq ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 .== v2))
+            (SBVBool b1, SBVBool b2) -> return (SBVBool (b1 .== b2))
+            _ -> error "expressions of _ == _ not of same type"
+        Neq ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVBool (sNot (v1 .== v2)))
+            (SBVBool b1, SBVBool b2) -> return (SBVBool (sNot (b1 .== b2)))
+            _ -> error "expressions of _ == _ not of same type"
+        Add ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVInt (v1 + v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+        Sub ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVInt (v1 - v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+        Mul ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVInt (v1 * v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+        Mod ->
+          case (first, second) of
+            (SBVInt v1, SBVInt v2) -> return (SBVInt (sMod v1 v2))
+            _ ->
+              error
+                "at least one of the expressions of _ || _ might not be of type int"
+
+--data AbstractVal
+--  = AChan ChannelID -- Kanalname
+--  | AIf Expr AbstractVal AbstractVal -- eine Auswahl zwischen verschiedenen Abstract Values
+--  | ATerm Expr -- Ein Ausdruck
+--  | AUnknown -- noch unbekannt
+--  deriving (Show)
+expressionToSymbolic :: SMTEnv -> Expr -> Context -> Symbolic SBVal
+expressionToSymbolic env expr ctxt =
+  case expr of
+    EBool b -> return (SBVBool $ literal b) -- expression ist eine bool -> SBool
+    EInt n -> return (SBVInt $ literal n) -- expression ist ein int -> SInteger
+    EVar x -> -- expression ist eine Variable
+      case lookupAV x ctxt of
+        ATerm e | not (hasVars e) -> -- und diese Variable verweist NICHT auf andere Variablen
+          expressionToSymbolic env e ctxt -- dann wird x ersetzt durch das, wofür x steht, also e
+        --AIf cond (ATerm e1) (ATerm e2) -> do
+        --  SBVBool c' <- expressionToSymbolic env cond ctxt
+        --  v1 <- expressionToSymbolic env e1 ctxt
+        --  v2 <- expressionToSymbolic env e2 ctxt
+        --  case (v1, v2) of
+        --    (SBVInt  x, SBVInt  y) -> pure (SBVInt  (ite c' x y))
+        --    (SBVBool x, SBVBool y) -> pure (SBVBool (ite c' x y))
+        --    _ -> error "AIf branches have different types"
+        --    _ ->
+        --      case Map.lookup x env of
+        --        Just v  -> return v
+        --        Nothing -> error ("SMTEnv missing var: " ++ show x)
+        _ -> do
+          case Map.lookup x env of 
+            Just v -> return v 
+            Nothing -> error ("SMTEnv missing var: " ++ show x)
+--    EVar x -- expression ist eine Variable
+--     ->
+--      case lookupAV x ctxt of
+--        ATerm e
+--          | not (hasVars e) -- und diese Variable verweist NICHT auf andere Variablen
+--           -> expressionToSymbolic e ctxt -- Dann wird einfach x ersetzt durch das, wofür x steht, also e
+--        -- AIf e s1 s2 fehlt!!! TODO
+--        _ -- und wenn diese Variable x doch auf min. eine andere variable verweist,
+--         ->
+--          case lookupType x ctxt of
+--            -- dann wird einfach eine Symbolic Variable x erstellt, die entweder SInt oder SBool ist
+--            Just TInt -> SBVInt <$> sInteger (show x)
+--            Just TBool -> SBVBool <$> sBool (show x)
+--            -- falls für x gar kein eintrag im kontext ist,
+--            Nothing ->
+--              if x == VarName "*"
+--                then SBVBool <$> sBool "*"
+--                else error "variable has no type" -- oder wir können keinen type für x finden
+    ENot e -> do
+      val <- expressionToSymbolic env e ctxt
+      case val of
+        SBVBool b -> return (SBVBool (sNot b))
+        _         -> error "negating non-bool expression"
+    EBinOp op e1 e2 -> do
+      first <- expressionToSymbolic env e1 ctxt
+      second <- expressionToSymbolic env e2 ctxt
       case op of
         And ->
           case (first, second) of
@@ -1003,8 +1332,18 @@ expressionToSymbolic expr ctxt =
 checkSat :: Expr -> Context -> IO SatResult
 checkSat expr ctxt =
   sat $ do
-    val <- expressionToSymbolic expr ctxt
+    env <- mkEnv expr ctxt
+    val <- expressionToSymbolic env expr ctxt
     case val of
+      SBVBool b -> return b
+      _         -> return sTrue
+
+checkSatForEquiv :: Expr -> Context -> IO SatResult
+checkSatForEquiv expr ctxt =
+  sat $ do
+    env <- mkEnv expr ctxt
+    v   <- expressionToSymbolicForEquiv env expr ctxt
+    case v of
       SBVBool b -> return b
       _         -> return sTrue
 

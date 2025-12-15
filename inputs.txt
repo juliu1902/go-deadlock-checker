@@ -388,8 +388,24 @@ func bar (c chan int, x int, y int, z int, b bool){
 ---
 
 // Paar 24 Aliasing test genau wie im Mailaustausch erwähnt -> equiv TRUE!
-func foo (c1 chan int, c2 chan int, c chan int, b int){
-    if (b<0) then { c := c1 } else { c := c2 }
+//func foo (c1 chan int, c2 chan int, c chan int, b int){
+//    if (b<0) then { c := c1 } else { c := c2 }
+//    c <- 1
+//    close c1
+//    close c2
+//}
+//---
+//func bar (c1 chan int, c2 chan int, b bool){
+//    if b then { c1 <- 1 } else { c2 <- 1 }
+//    close c1
+//    close c2
+//}
+// geht nicht, da in beiden funktionen das b anders deklariert ist!
+//---
+
+// Paar 24 Aliasing test genau wie im Mailaustausch erwähnt -> equiv TRUE!
+func foo (c1 chan int, c2 chan int, c chan int, b bool){
+    if b then { c := c1 } else { c := c2 }
     c <- 1
     close c1
     close c2
@@ -400,6 +416,7 @@ func bar (c1 chan int, c2 chan int, b bool){
     close c1
     close c2
 }
+ geht nicht, da in beiden funktionen das b anders deklariert ist!
 ---
 
 // Paar 25 weitere assignments im if tests und aliasing test -> equiv TRUE!
@@ -576,8 +593,15 @@ func foo (b bool, c chan int, c2 chan int, c1 chan int, x int){
     c <- 2
 }
 ---
+// Frage: Darf der Kontext hier dann direkt zu beginn ermittelt werden mit
+// [(c,(TChan CInt,AChan (ChannelID "id0"))), (c2, (TChan CInt, AChan (ChannelID "id1"))), (c3, (TChan CBool, AChan (ChannelID "id2)))]
+// also ich gehe bevor ich irgendwas mache einmal durch den ganzen code durch und schaue, ob hier irgendwo channels deklariert wurden und gebe ihnen direkt eine ID zu beginn,
+// dh. theoretisch existieren sie schon bevor sie im code deklariert sind?
 func bar (c chan int){
-    var c chan int
+    var b bool
+    var c2 chan int
     close c
+    var c3 chan bool
+    b := false && true
+    if !b then c3 <-1 else skip
 }
----
