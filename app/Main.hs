@@ -8,18 +8,8 @@ import           Parser
 import           System.Environment (getArgs)
 import           System.Exit        (die)
 import           Text.Megaparsec
+import           AlternativeST
 
-
--- -- Are s1 and s2 equivalent?
--- testEquiv :: Statement -> Statement -> IO Bool
--- testEquiv s1 s2 =
---   testEquivalence' [] (canonicalizeChannelNames (normalizeST s1) Map.empty) (canonicalizeChannelNames (normalizeST s2) Map.empty)
---
---
--- -- Is s1 dual to s2?
--- testDual :: Statement -> Statement -> IO Bool
--- testDual s1 s2 = testEquiv (dual s1) s2
--- Are s1 and s2 equivalent?
 testEquiv :: Statement -> Statement -> Bool
 testEquiv s1 s2 =
   testEquivalence
@@ -36,10 +26,17 @@ buildST' src =
     Left err ->
       return (Left $ "Fehler beim Parsen: " ++ (errorBundlePretty err))
     Right (Program decs stmt) -> do
-      st <- stmtToST' (initialContext stmt decs) stmt
+      st <- stmtToST (initialContext decs) 0 stmt 
       case st of
         Left err         -> return (Left $ "Fehler bei Typprüfung: " ++ err)
-        Right (st, ctxt) -> return (Right (st, ctxt))
+        Right (st, ctxt, state) -> return (Right (st, ctxt))
+
+buildAlternativeST :: String -> IO (Statement, Context)
+buildAlternativeST src =
+  case runParser parseProgram "" src of
+    Left err -> return (Skip, Map.empty)
+    Right (Program decs stmt) -> alternativeSTNaming (initialContext decs) stmt
+
 
 checkClosed :: Statement -> Either String ()
 checkClosed st =
@@ -111,6 +108,8 @@ runCase :: Int -> (String, String) -> IO ()
 runCase i (srcA, srcB) = do
   st1 <- buildST' srcA
   st2 <- buildST' srcB
+  alternativeST1 <- buildAlternativeST srcA
+  alternativeST2 <- buildAlternativeST srcB
   case (st1, st2) of
     (Left e, _) -> die $ "Fehler in Block " ++ show i ++ "A:\n" ++ e
     (_, Left e) -> die $ "Fehler in Block " ++ show i ++ "B:\n" ++ e
@@ -124,30 +123,18 @@ runCase i (srcA, srcB) = do
         Right () -> return ()
       putStrLn "ST A:"
       putStrLn (prettyPrintST stA)
-      putStrLn $ "Context A: " ++ show ctA
+      putStrLn (prettyPrintST (fst alternativeST1))
       putStrLn "\nST B:"
       putStrLn (prettyPrintST stB)
-      putStrLn $ "Context B: " ++ show ctB
+      putStrLn (prettyPrintST (fst alternativeST2))
+
       putStrLn "\nNormalformen:"
       putStrLn ("A: " ++ prettyPrintST (normalizeST stA))
       putStrLn ("B: " ++ prettyPrintST (normalizeST stB))
-      putStrLn "\n Normalformen für die testEquivalence'"
-      putStrLn ("A: " ++ prettyPrintST (normalizeST' stA))
-      putStrLn ("B: " ++ prettyPrintST (normalizeST' stB))
-      putStrLn "\nNormalform mit kanonisierte Variablenbenennung"
-      putStrLn
-        ("Canonized A: "
-           ++ prettyPrintST
-                (canonicalizeChannelNames (normalizeST stA) Map.empty))
-      putStrLn
-        ("Canonized B: "
-           ++ prettyPrintST
-                (canonicalizeChannelNames (normalizeST stB) Map.empty))
+
+      putStrLn $ "\nContext A: " ++ show ctA
+      putStrLn $ "Context B: " ++ show ctB
       putStrLn "\nTests:"
-      --equivalenceTest <- testEquiv stA stB
-      --dualTestOne <- testDual stA stB
-      --dualTestTwo <- testDual stB stA
-      --putStrLn ("dual (A) ~ B?  " ++ show dualTestOne)
       putStrLn ("OLD A ~ B?        " ++ show (testEquiv stA stB))
       putStrLn ("OLD dual (A) ~ B?  " ++ show (testDual stA stB))
       resEquiv <- (testEquivalence' (Map.union ctA ctB) [] (canonicalizeChannelNames (normalizeST stA) Map.empty) (canonicalizeChannelNames (normalizeST stB) Map.empty))

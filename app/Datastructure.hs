@@ -12,10 +12,10 @@ import           Data.SBV            (SBV, SBool, SInteger, SMTResult (..),
                                       sBool, sDiv, sInteger, sMod, sNot, sTrue,
                                       sat, (.&&), (.<), (.<=), (.==), (.>),
                                       (.>=), (.||), free, ite)
+import           Data.IORef
 
 data Statement
-  = New VarName Statement
-  | Skip
+  = Skip
   | Send VarName
   | Receive VarName
   | End VarName
@@ -25,6 +25,7 @@ data Statement
   | Assign VarName Expr
   | Go Statement Statement
   | Declare VarName VarType
+  | Make VarName ChanType
   deriving (Show, Eq)
 
 
@@ -145,51 +146,43 @@ data SBVal
 
 type SMTEnv = Map.Map VarName SBVal
 
-
 -- evaluates conditions and considers the context when there is a send/receive
-stmtToST' :: Context -> Statement -> IO (Either String (Statement, Context))
-stmtToST' ctxt st =
+stmtToST :: Context -> Int -> Statement -> IO (Either String (Statement, Context, Int))
+stmtToST ctxt state st =
   case st of
-    New c s -> do
-      res <- (stmtToST' ctxt s)
-      case res of
-        Right (s', ctxt') -> return (Right (New c s', ctxt'))
-        Left err          -> return (Left err)
     Declare v t -> do
-      case t of
-        t@(TChan _) -> return $ Right (Declare v t, ctxt) -- declarations of channels are already handled in contextFromStatement
-        _ ->
-          case typeCheck (Map.insert v (t, AUnknown) ctxt) -- logic could added here to prevent redeclaring a variable that has already been declared
-                of
-            Right _ ->
-              return $ Right (Declare v t, (Map.insert v (t, AUnknown) ctxt))
-            Left err -> return $ Left err
+      case typeCheck (Map.insert v (t, AUnknown) ctxt) of -- logic could added here to prevent redeclaring a variable that has already been declared
+        Right _ -> return $ Right (Declare v t, (Map.insert v (t, AUnknown) ctxt), state)
+        Left err -> return $ Left err
+    Make v chant -> do
+      let freshId = ChannelID ("oid" ++ show state)
+      return (Right (Make v chant, updateOneAV v (AChan freshId) ctxt, state+1))
     Sequence s1 s2 -> do
-      res1 <- stmtToST' ctxt s1
+      res1 <- stmtToST ctxt state s1
       case res1 of
-        Right (s1', ctxt1) -> do
-          res2 <- stmtToST' ctxt1 s2
+        Right (s1', ctxt1, state1) -> do
+          res2 <- stmtToST ctxt1 state1 s2
           case res2 of
-            Right (s2', ctxt2) -> return (Right (Sequence s1' s2', ctxt2))
+            Right (s2', ctxt2, state2) -> return (Right (Sequence s1' s2', ctxt2, state2))
             Left err           -> return (Left err)
         Left err -> return (Left err)
     If e s1 s2 -> do
-      res1 <- stmtToST' ctxt s1
+      res1 <- stmtToST ctxt state s1
       case res1 of
-        Right (s1', ctxt1) -> do
-          res2 <- stmtToST' ctxt s2
+        Right (s1', ctxt1, state1) -> do
+          res2 <- stmtToST ctxt state s2
           case res2 of
-            Right (s2', ctxt2) ->
+            Right (s2', ctxt2, state2) ->
               let e' = evalExpr e ctxt -- auch hier evalExpr, damit Variablen aus der Bedingung ihren aktuellen Wert aus dem AV im Context bekommen
                   ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
                in case checkTypeOfExpression TBool e' ctxt of
                     True -> do
                       resolved <- resolveIf (If e' s1 s2) ctxt
                       if resolved == s1
-                        then return (Right (s1', ctxt1))
+                        then return (Right (s1', ctxt1, state1))
                         else if resolved == s2
-                               then return (Right (s2', ctxt2))
-                               else return (Right (If e' s1' s2', ctxtMerged))
+                               then return (Right (s2', ctxt2, state2))
+                               else return (Right (If e' s1' s2', ctxtMerged, state2))
                     False ->
                       return
                         (Left
@@ -202,23 +195,24 @@ stmtToST' ctxt st =
         ATerm e ->
           case typeCheck (updateOneAV var (ATerm e) ctxt) of
             Right () ->
-              return (Right (Assign var e, (updateOneAV var (ATerm e) ctxt))) -- var bekommt den Term der x definiert
+              return (Right (Assign var e, updateOneAV var (ATerm e) ctxt, state)) -- var bekommt den Term der x definiert
             Left err -> return (Left err)
         AIf e av1 av2 ->
           case typeCheck (updateOneAV var (AIf e av1 av2) ctxt) of
             Right () ->
-              return
-                (Right
-                   (Assign var (EVar x), (updateOneAV var (AIf e av1 av2) ctxt)) -- var bekommt die AIf condition von x
-                 )
+              return (Right (Assign var (EVar x), updateOneAV var (AIf e av1 av2) ctxt, state)) -- var bekommt die AIf condition von x
             Left err -> return (Left err)
-        _ ->
+        AChan chanID ->
+          case typeCheck (updateOneAV var (AChan chanID) ctxt) of
+            Right () ->
+              return (Right (Assign var (EVar x), updateOneAV var (AChan chanID) ctxt, state))
+        _ -> -- var bekommt einfach ATerm x
           case typeCheck (updateOneAV var (ATerm (EVar x)) ctxt) of
             Right _ ->
               return
                 (Right
                    ( Assign var (EVar x)
-                   , (updateOneAV var (ATerm (EVar x)) ctxt)))
+                   , updateOneAV var (ATerm (EVar x)) ctxt, state))
     Assign var (EBinOp op e1 e2) ->
       let e1' = evalExpr e1 ctxt
           e2' = evalExpr e2 ctxt
@@ -227,38 +221,38 @@ stmtToST' ctxt st =
               return
                 (Right
                    ( Assign var (EBinOp op e1' e2')
-                   , (updateOneAV var (ATerm (EBinOp op e1' e2')) ctxt)))
+                   , updateOneAV var (ATerm (EBinOp op e1' e2')) ctxt, state))
             Left err -> return (Left err)
     Assign var (ENot expr) ->
       let expr' = evalExpr (ENot expr) ctxt
        in case typeCheck (updateOneAV var (ATerm expr') ctxt) of
             Right () ->
               return
-                (Right (Assign var expr', (updateOneAV var (ATerm expr') ctxt)))
+                (Right (Assign var expr', updateOneAV var (ATerm expr') ctxt, state))
             Left err -> return (Left err)
     Assign var expr ->
       case typeCheck (updateOneAV var (ATerm expr) ctxt) of
         Right () ->
-          return (Right (Assign var expr, (updateOneAV var (ATerm expr) ctxt))) -- EBool, EInt, EFloat werden einfach so übernommen
+          return (Right (Assign var expr, updateOneAV var (ATerm expr) ctxt, state)) -- EBool, EInt, EFloat werden einfach so übernommen
         Left err -> return (Left err)
-    Send v -> return (Right (setInContext "send" ctxt v, ctxt))
-    Receive v -> return (Right (setInContext "recv" ctxt v, ctxt))
-    End v -> return (Right (setInContext "end" ctxt v, ctxt))
+    Send v -> return (Right (setInContext "send" ctxt v, ctxt, state))
+    Receive v -> return (Right (setInContext "recv" ctxt v, ctxt, state))
+    End v -> return (Right (setInContext "end" ctxt v, ctxt, state))
     Go s1 s2 -> do
-      res <- stmtToST' ctxt s1
+      res <- stmtToST ctxt state s1
       case res of
         Left err -> return (Left err)
-        Right (s1', ctxt1) -> do
-          res2 <- stmtToST' ctxt1 s2
+        Right (s1', ctxt1, state1) -> do
+          res2 <- stmtToST ctxt1 state1 s2
           case res2 of
             Left err           -> return (Left err)
-            Right (s2', ctxt2) -> return (Right (Go s1' s2', ctxt2))
+            Right (s2', ctxt2, state2) -> return (Right (Go s1' s2', ctxt2, state2))
     For hdr s -> do
-      res <- stmtToST' ctxt s
+      res <- stmtToST ctxt state s
       case res of
-        Right (s', ctxt') -> return (Right (For hdr s', ctxt'))
+        Right (s', ctxt', state') -> return (Right (For hdr s', ctxt', state'))
         Left err          -> return (Left err)
-    _ -> return (Right (st, ctxt))
+    _ -> return (Right (st, ctxt, state))
 
 typeCheck :: Context -> Either String ()
 typeCheck ctxt =
@@ -544,55 +538,24 @@ evalExpr e _ = e
 setInContext :: String -> Context -> VarName -> Statement
 setInContext mode ctxt v =
   case lookupAV v ctxt of
-    AIf cond (ATerm (EVar v1)) (AChan _) ->
-      let act m var =
-            if m == "send"
-              then Send var
-              else if m == "recv"
-                     then Receive var
-                     else End var
-       in If cond (act mode v1) (act mode v)
-    AIf cond (AChan _) (ATerm (EVar v1)) ->
-      let act m var =
-            if m == "send"
-              then Send var
-              else if m == "recv"
-                     then Receive var
-                     else End var
-       in If cond (act mode v) (act mode v1)
-    AIf cond (ATerm (EVar v1)) (ATerm (EVar v2)) ->
-      let act m var =
-            if m == "send"
-              then Send var
-              else if m == "recv"
-                     then Receive var
-                     else End var
-       in if v1 == v2
-            then act mode v1
-            else If cond (act mode v1) (act mode v2)
-    ATerm (EVar x) -- Es kann sehr wohl ein Channel im ATerm enthalten sein, wenn unser AV die Form ATerm (Evar x) hat und einem Channel zugewiesen ist
-     ->
-      let act m var =
-            if m == "send"
-              then Send var
-              else if m == "recv"
-                     then Receive var
-                     else End var
-       in act mode x
-    -- Fallback
-    _ ->
-      if mode == "send"
-        then Send v
-        else if mode == "recv"
-               then Receive v
-               else End v
+    AChan (ChannelID chanID) -> act mode (VarName chanID)
+    AIf cond (AChan (ChannelID a1)) (AChan (ChannelID a2)) ->if a1 == a2 then act mode (VarName a1) else If cond (act mode (VarName a1)) (act mode (VarName a1))
+    _ -> act mode v
+    where 
+      act :: String -> VarName -> Statement
+      act m v =
+        if m == "send"
+          then Send v
+          else if m == "recv"
+            then Receive v
+            else End v
 
 
 -- representing a parsed Statement as a Session Type, optionally used after stmtToST!
 prettyPrintST :: Statement -> String
 prettyPrintST x =
   case x of
-    New (VarName c) s -> "new " ++ c ++ "." ++ prettyPrintST s
+    Make (VarName ch) _ -> "make " ++ ch
     Skip -> "skip"
     Send (VarName ch) -> ch ++ "!"
     Receive (VarName ch) -> ch ++ "?"
@@ -661,23 +624,24 @@ freshChannel = do
   put (n + 1)
   return $ ChannelID ("id" ++ show n)
 
+initialContext :: VarDecs -> Context
+initialContext decs =
+  freshInitialContext (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs])
 
 -- in the beginning all the Abstract Values are unknown
-initialContext :: Statement -> VarDecs -> Context
-initialContext stmt decs =
-  freshInitialContext
-    $ (Map.union
-         (extractContextFromStatement stmt Map.empty)
-         (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs]))
-
-extractContextFromStatement :: Statement -> Context -> Context
-extractContextFromStatement (Declare v t@(TChan _)) ctxt =
-  Map.insert v (t, AUnknown) ctxt
-extractContextFromStatement (Sequence s1 s2) ctxt =
-  extractContextFromStatement
-    s2
-    (Map.union (extractContextFromStatement s1 ctxt) ctxt)
-extractContextFromStatement _ ctxt = ctxt
+--initialContext :: Statement -> VarDecs -> Context
+--initialContext stmt decs =
+--  freshInitialContext
+--    $ (Map.union
+--         (extractContextFromStatement stmt Map.empty)
+--         (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs]))
+--
+--extractContextFromStatement :: Statement -> Context -> Context
+--extractContextFromStatement (Sequence s1 s2) ctxt =
+--  extractContextFromStatement
+--    s2
+--    (Map.union (extractContextFromStatement s1 ctxt) ctxt)
+--extractContextFromStatement _ ctxt = ctxt
 
 
 -- var chan int/bool should automatically create fresh channels with unique channelID
@@ -753,7 +717,6 @@ mergeIfContexts cond c1 c2 =
 dual :: Statement -> Statement
 dual (Send var)       = Receive var
 dual (Receive var)    = Send var
-dual (New var s)      = New var (dual s)
 dual (Sequence s1 s2) = Sequence (dual s1) (dual s2)
 dual (If e s1 s2)     = If e (dual s1) (dual s2)
 dual (For head s)     = For head (dual s)
@@ -766,7 +729,6 @@ dual x                = x
 strip :: Statement -> Statement
 strip (Go s1 s2) = Skip
 strip (For head s1) = Skip
-strip (New var s) = strip s
 strip (Assign var e) = Skip
 strip (Sequence s1 s2) = Sequence (strip s1) (strip s2)
 strip (If e s1 s2) =

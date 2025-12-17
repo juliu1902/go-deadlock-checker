@@ -394,16 +394,6 @@ func bar (c chan int, x int, y int, z int, b bool){
 //    close c1
 //    close c2
 //}
-//---
-//func bar (c1 chan int, c2 chan int, b bool){
-//    if b then { c1 <- 1 } else { c2 <- 1 }
-//    close c1
-//    close c2
-//}
-// geht nicht, da in beiden funktionen das b anders deklariert ist!
-//---
-
-// Paar 24 Aliasing test genau wie im Mailaustausch erwähnt -> equiv TRUE!
 func foo (c1 chan int, c2 chan int, c chan int, b bool){
     if b then { c := c1 } else { c := c2 }
     c <- 1
@@ -416,11 +406,11 @@ func bar (c1 chan int, c2 chan int, b bool){
     close c1
     close c2
 }
- geht nicht, da in beiden funktionen das b anders deklariert ist!
 ---
 
 // Paar 25 weitere assignments im if tests und aliasing test -> equiv TRUE!
-func foo (c1 chan int, c2 chan int, c chan int, b bool){
+func foo (c1 chan int, c2 chan int, b bool){
+    var c chan int
     if b then { c = c1 } else { c = c2 }
     close c
 }
@@ -600,8 +590,28 @@ func foo (b bool, c chan int, c2 chan int, c1 chan int, x int){
 func bar (c chan int){
     var b bool
     var c2 chan int
+    c2 := make (chan int)
     close c
     var c3 chan bool
+    c3 := make (chan bool)
     b := false && true
-    if !b then c3 <-1 else skip
+    if !b then <- c3 else skip
 }
+
+//func foo (c chan int){
+//    c <- 1
+//    close c
+//}
+//---
+//func bar (d chan int){
+//    var x chan int
+//    x := make (chan int)
+//    go foo(x)
+//    <- x
+//    d <- 2
+//    close x
+//}
+//
+//c!;c#
+//make id0.go(id0!;id0#);id0?;d!;id0#
+//make id0.id0!;id0#;id0?;d!;

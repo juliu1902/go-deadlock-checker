@@ -173,7 +173,7 @@ expressionParser = makeExprParser term table
 
 parseSingleStatement :: Parser Statement
 parseSingleStatement = do
-  try parseMakeBlock
+  try parseMake
     <|> try parseAssign
     <|> try parseEnd
     <|> try parseRec
@@ -183,12 +183,12 @@ parseSingleStatement = do
     <|> try varDecParser
     <|> parseIf
 
-parseMakeChanName :: Parser String
-parseMakeChanName = do
+parseMake :: Parser Statement
+parseMake = do
   spaceConsumer
   c <- identifier
   spaceConsumer
-  _ <- string "::="
+  _ <- string ":="
   spaceConsumer
   _ <- string "make"
   spaceConsumer
@@ -196,17 +196,27 @@ parseMakeChanName = do
   spaceConsumer
   _ <- string "chan"
   spaceConsumer
-  _ <- string "int" <|> string "bool"
+  make <- try (parseIntChannel c) <|> (parseBoolChannel c)
   spaceConsumer
   _ <- char ')'
-  return c
+  return make
+  where
+    parseIntChannel :: String -> Parser Statement
+    parseIntChannel c = do
+      _ <- string "int"
+      return $ Make (VarName c) CInt
+    parseBoolChannel :: String -> Parser Statement
+    parseBoolChannel c = do
+      _ <- string "bool"
+      return $ Make (VarName c) CBool
 
-parseMakeBlock :: Parser Statement
-parseMakeBlock = do
-  c <- parseMakeChanName -- c ::= make(chan int|bool)
-  spaceConsumer
-  s <- parseStatement
-  return (New (VarName c) s)
+
+--parseMakeBlock :: Parser Statement
+--parseMakeBlock = do
+--  c <- parseMakeChanName -- c ::= make(chan int|bool)
+--  spaceConsumer
+--  s <- parseStatement
+--  return (New (VarName c) s)
 
 parseSkip :: Parser Statement
 parseSkip = do
@@ -227,11 +237,21 @@ parseSend = do
   return (Send (VarName c))
 
 
--- sowohl x = <- c als auch x := <- c erlaubt,
--- obwohl bei x = <- c x vorher deklariert werden muss
--- mit `var x int` oder ähnlichem, hier nicht berücksichtigt
 parseRec :: Parser Statement
 parseRec = do
+  try recAndThrowParser <|> recParser
+
+-- <- c auch erlaubt, schmeißt den wert der in c steckt weg
+recAndThrowParser :: Parser Statement
+recAndThrowParser = do
+  spaceConsumer
+  _ <- string "<-"
+  spaceConsumer
+  Receive <$> parseVar
+
+-- sowohl x = <- c als auch x := <- c erlaubt
+recParser :: Parser Statement
+recParser = do 
   spaceConsumer
   _ <- identifier
   spaceConsumer
