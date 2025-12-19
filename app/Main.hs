@@ -9,6 +9,7 @@ import           System.Environment (getArgs)
 import           System.Exit        (die)
 import           Text.Megaparsec
 import           AlternativeST
+import           Equivalence
 
 testEquiv :: Statement -> Statement -> Bool
 testEquiv s1 s2 =
@@ -35,7 +36,9 @@ buildAlternativeST :: String -> IO (Statement, Context)
 buildAlternativeST src =
   case runParser parseProgram "" src of
     Left err -> return (Skip, Map.empty)
-    Right (Program decs stmt) -> alternativeSTNaming (initialContext decs) stmt
+    Right (Program decs stmt) -> do
+      (resST, _, _) <- alternativeSTNaming (initialContext decs) 0 stmt
+      return (resST, initialContext decs)
 
 
 checkClosed :: Statement -> Either String ()
@@ -51,10 +54,6 @@ checkClosed st =
           if v `elem` closedVars
             then Left "Send on closed channel."
             else Right closedVars
-        Receive v ->
-          if v `elem` closedVars
-            then Left "Receive on closed channel."
-            else Right closedVars
         End v -> Right (closedVars ++ [v])
         Sequence s1 s2 -> do
           firstClosed <- checkClosedHelper s1 closedVars
@@ -63,7 +62,7 @@ checkClosed st =
           case ( checkClosedHelper s1 closedVars
                , checkClosedHelper s2 closedVars) of
             (Right fvars, Right svars) -> Right (fvars ++ svars)
-            _ -> Left "Send/Receive on closed channel in If branch"
+            _ -> Left "Send on closed channel in If branch"
         For fh s -> checkClosedHelper s closedVars
         _ -> Right closedVars
 
@@ -108,8 +107,8 @@ runCase :: Int -> (String, String) -> IO ()
 runCase i (srcA, srcB) = do
   st1 <- buildST' srcA
   st2 <- buildST' srcB
-  alternativeST1 <- buildAlternativeST srcA
-  alternativeST2 <- buildAlternativeST srcB
+  (alternativeST1, paramContext1) <- buildAlternativeST srcA
+  (alternativeST2, paramContext2) <- buildAlternativeST srcB
   case (st1, st2) of
     (Left e, _) -> die $ "Fehler in Block " ++ show i ++ "A:\n" ++ e
     (_, Left e) -> die $ "Fehler in Block " ++ show i ++ "B:\n" ++ e
@@ -123,20 +122,29 @@ runCase i (srcA, srcB) = do
         Right () -> return ()
       putStrLn "ST A:"
       putStrLn (prettyPrintST stA)
-      putStrLn (prettyPrintST (fst alternativeST1))
+      putStrLn (prettyPrintST alternativeST1)
       putStrLn "\nST B:"
       putStrLn (prettyPrintST stB)
-      putStrLn (prettyPrintST (fst alternativeST2))
+      putStrLn (prettyPrintST alternativeST2)
 
       putStrLn "\nNormalformen:"
       putStrLn ("A: " ++ prettyPrintST (normalizeST stA))
       putStrLn ("B: " ++ prettyPrintST (normalizeST stB))
+      putStrLn "\nNormalform mit kanonisierter Variablenbenennung"
+      putStrLn
+        ("Canonized A: "
+           ++ prettyPrintST
+                (canonicalizeChannelNames (normalizeST stA) Map.empty))
+      putStrLn
+        ("Canonized B: "
+           ++ prettyPrintST
+                (canonicalizeChannelNames (normalizeST stB) Map.empty))
 
       putStrLn $ "\nContext A: " ++ show ctA
       putStrLn $ "Context B: " ++ show ctB
       putStrLn "\nTests:"
       putStrLn ("OLD A ~ B?        " ++ show (testEquiv stA stB))
       putStrLn ("OLD dual (A) ~ B?  " ++ show (testDual stA stB))
-      resEquiv <- (testEquivalence' (Map.union ctA ctB) [] (canonicalizeChannelNames (normalizeST stA) Map.empty) (canonicalizeChannelNames (normalizeST stB) Map.empty))
+      resEquiv <- (testEquivalence' paramContext1 paramContext2 [] (canonicalizeChannelNames (normalizeST' stA) Map.empty) (canonicalizeChannelNames (normalizeST' stB) Map.empty))
       putStrLn ("A ~ B?" ++  show resEquiv)
       putStrLn ""

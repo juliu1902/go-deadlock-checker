@@ -159,7 +159,7 @@ func bar (c1 chan int, c2 chan int){
 }
 ---
 
-// Paar 11 noch ein Reihenfolgentest, könnte legal sein, je nach dem durch welche Prozesse die Kanäle bedient werden -> equiv FALSE!
+// Paar 11 noch ein Reihenfolgentest -> equiv FALSE!
 func foo (c1 chan int, c2 chan int){
     c1 <- 1
     c2 <- 2
@@ -178,7 +178,7 @@ func bar (c1 chan int, c2 chan int){
 ---
 
 // Paar 12 noch ein cond-eta test -> equiv TRUE!
-func foo (c1 chan int, b bool){
+func foo (c chan int, b bool){
     if b then { c <- 1 } else { c <- 1 }
     c <- 2
     close c
@@ -225,7 +225,7 @@ func bar (c1 chan int){
 }
 ---
 
-// Paar 15 skips beeinflussen den ST nicht, könnte äquivalent mit SMT solver sein? TODO -> equiv FALSE!
+// Paar 15 skips beeinflussen den ST nicht -> equiv FALSE!
 func foo (c1 chan int, c2 chan int, b bool){
     if b then { 
         c1 <- 1
@@ -583,10 +583,6 @@ func foo (b bool, c chan int, c2 chan int, c1 chan int, x int){
     c <- 2
 }
 ---
-// Frage: Darf der Kontext hier dann direkt zu beginn ermittelt werden mit
-// [(c,(TChan CInt,AChan (ChannelID "id0"))), (c2, (TChan CInt, AChan (ChannelID "id1"))), (c3, (TChan CBool, AChan (ChannelID "id2)))]
-// also ich gehe bevor ich irgendwas mache einmal durch den ganzen code durch und schaue, ob hier irgendwo channels deklariert wurden und gebe ihnen direkt eine ID zu beginn,
-// dh. theoretisch existieren sie schon bevor sie im code deklariert sind?
 func bar (c chan int){
     var b bool
     var c2 chan int
