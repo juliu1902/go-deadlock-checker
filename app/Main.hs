@@ -10,15 +10,7 @@ import           System.Exit        (die)
 import           Text.Megaparsec
 import           AlternativeST
 import           Equivalence
-
-testEquiv :: Statement -> Statement -> Bool
-testEquiv s1 s2 =
-  testEquivalence
-    (canonicalizeChannelNames (normalizeST s1) Map.empty)
-    (canonicalizeChannelNames (normalizeST s2) Map.empty)
-
-testDual :: Statement -> Statement -> Bool
-testDual s1 s2 = testEquiv (dual s1) s2
+import           Duality
 
 -- Parses a program and returns its Session Type or an error if it couldn't be parsed
 buildST' :: String -> IO (Either String (Statement, Context))
@@ -30,12 +22,12 @@ buildST' src =
       st <- stmtToST (initialContext decs) 0 stmt 
       case st of
         Left err         -> return (Left $ "Fehler bei Typprüfung: " ++ err)
-        Right (st, ctxt, state) -> return (Right (st, ctxt))
+        Right (s, ctxt, state) -> return (Right (s, ctxt))
 
 buildAlternativeST :: String -> IO (Statement, Context)
 buildAlternativeST src =
   case runParser parseProgram "" src of
-    Left err -> return (Skip, Map.empty)
+    Left _ -> return (Skip, Map.empty)
     Right (Program decs stmt) -> do
       (resST, _, _) <- alternativeSTNaming (initialContext decs) 0 stmt
       return (resST, initialContext decs)
@@ -127,24 +119,26 @@ runCase i (srcA, srcB) = do
       putStrLn (prettyPrintST stB)
       putStrLn (prettyPrintST alternativeST2)
 
-      putStrLn "\nNormalformen:"
-      putStrLn ("A: " ++ prettyPrintST (normalizeST stA))
-      putStrLn ("B: " ++ prettyPrintST (normalizeST stB))
       putStrLn "\nNormalform mit kanonisierter Variablenbenennung"
       putStrLn
         ("Canonized A: "
            ++ prettyPrintST
-                (canonicalizeChannelNames (normalizeST stA) Map.empty))
+                (canonicalizeChannelNames (simplification stA) Map.empty))
       putStrLn
         ("Canonized B: "
            ++ prettyPrintST
-                (canonicalizeChannelNames (normalizeST stB) Map.empty))
+                (canonicalizeChannelNames (simplification stB) Map.empty))
 
-      putStrLn $ "\nContext A: " ++ show ctA
-      putStrLn $ "Context B: " ++ show ctB
+      --putStrLn $ "\nContext A: " ++ show ctA
+      --putStrLn $ "Context B: " ++ show ctB
       putStrLn "\nTests:"
-      putStrLn ("OLD A ~ B?        " ++ show (testEquiv stA stB))
-      putStrLn ("OLD dual (A) ~ B?  " ++ show (testDual stA stB))
-      resEquiv <- (testEquivalence' paramContext1 paramContext2 [] (canonicalizeChannelNames (normalizeST' stA) Map.empty) (canonicalizeChannelNames (normalizeST' stB) Map.empty))
-      putStrLn ("A ~ B?" ++  show resEquiv)
-      putStrLn ""
+      resEquiv <- testEquivalence' paramContext1 paramContext2 [] (Sequence (canonicalizeChannelNames stA Map.empty) Skip) (Sequence (canonicalizeChannelNames stB Map.empty) Skip)
+      putStrLn ("A ~ B? " ++  show resEquiv)
+      resDual <- testDuality paramContext1 paramContext2 [] [] [] (Sequence (canonicalizeChannelNames stA Map.empty) Skip) (Sequence (canonicalizeChannelNames stB Map.empty) Skip)
+      putStrLn ("A ^ B? " ++ show resDual)
+      --putStrLn $ show stA
+      --print $ show (simplification stA)
+      --
+      print $ simplification (canonicalizeChannelNames stA Map.empty)
+      --
+      print $ simplification (canonicalizeChannelNames stB Map.empty)

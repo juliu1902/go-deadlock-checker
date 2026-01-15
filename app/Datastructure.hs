@@ -1,18 +1,15 @@
 module Datastructure where
 
-import           Control.Monad       (replicateM)
 import           Control.Monad.State
 import qualified Data.List           as List
-import qualified Data.Map            as Map (Map, delete, deleteMin, empty,
+import qualified Data.Map            as Map (Map, delete, deleteMin,
                                              fromList, insert, lookup,
-                                             lookupMin, map, mapWithKey, toList,
-                                             union)
-import           Data.SBV            (SBV, SBool, SInteger, SMTResult (..),
-                                      SatResult (..), Symbolic, literal, runSMT,
-                                      sBool, sDiv, sInteger, sMod, sNot, sTrue,
+                                             lookupMin, map, toList)
+import           Data.SBV            (SBool, SInteger, SMTResult (..),
+                                      SatResult (..), Symbolic, literal,
+                                      sBool, sInteger, sMod, sNot, sTrue,
                                       sat, (.&&), (.<), (.<=), (.==), (.>),
-                                      (.>=), (.||), free, ite)
-import           Data.IORef
+                                      (.>=), (.||))
 
 data Statement
   = Skip
@@ -26,6 +23,7 @@ data Statement
   | Go Statement Statement
   | Declare VarName VarType
   | Make VarName ChanType
+  | Func  VarName VarDecs Context Statement
   deriving (Show, Eq)
 
 
@@ -76,7 +74,7 @@ data AbstractVal
   | AIf Expr AbstractVal AbstractVal -- eine Auswahl zwischen verschiedenen Abstract Values
   | ATerm Expr -- Ein Ausdruck
   | AUnknown -- noch unbekannt
-  deriving (Show)
+  deriving (Show, Eq)
 
 data Expr
   = EVar VarName
@@ -155,8 +153,9 @@ stmtToST ctxt state st =
         Right _ -> return $ Right (Declare v t, (Map.insert v (t, AUnknown) ctxt), state)
         Left err -> return $ Left err
     Make v chant -> do
-      let freshId = ChannelID ("oid" ++ show state)
-      return (Right (Make v chant, updateOneAV v (AChan freshId) ctxt, state+1))
+      let idname = "oid" ++ show state
+      let freshId = ChannelID idname
+      return (Right (Make (VarName idname) chant, updateOneAV v (AChan freshId) ctxt, state+1))
     Sequence s1 s2 -> do
       res1 <- stmtToST ctxt state s1
       case res1 of
@@ -193,48 +192,26 @@ stmtToST ctxt state st =
      ->
       case lookupAV x ctxt of
         ATerm e ->
-          case typeCheck (updateOneAV var (ATerm e) ctxt) of
-            Right () ->
-              return (Right (Assign var e, updateOneAV var (ATerm e) ctxt, state)) -- var bekommt den Term der x definiert
-            Left err -> return (Left err)
+          withTypeUpdate var (ATerm e) (Assign var e) ctxt state
         AIf e av1 av2 ->
-          case typeCheck (updateOneAV var (AIf e av1 av2) ctxt) of
-            Right () ->
-              return (Right (Assign var (EVar x), updateOneAV var (AIf e av1 av2) ctxt, state)) -- var bekommt die AIf condition von x
-            Left err -> return (Left err)
+          withTypeUpdate var (AIf e av1 av2) (Assign var (EVar x)) ctxt state
         AChan chanID ->
-          case typeCheck (updateOneAV var (AChan chanID) ctxt) of
-            Right () ->
-              return (Right (Assign var (EVar x), updateOneAV var (AChan chanID) ctxt, state))
+          withTypeUpdate var (AChan chanID) (Assign var (EVar x))  ctxt state
         _ -> -- var bekommt einfach ATerm x
-          case typeCheck (updateOneAV var (ATerm (EVar x)) ctxt) of
-            Right _ ->
-              return
-                (Right
-                   ( Assign var (EVar x)
-                   , updateOneAV var (ATerm (EVar x)) ctxt, state))
-    Assign var (EBinOp op e1 e2) ->
+          withTypeUpdate var (ATerm (EVar x)) (Assign var (EVar x)) ctxt state
+    Assign var (EBinOp op e1 e2) -> do
       let e1' = evalExpr e1 ctxt
           e2' = evalExpr e2 ctxt
-       in case typeCheck (updateOneAV var (ATerm (EBinOp op e1' e2')) ctxt) of
-            Right () ->
-              return
-                (Right
-                   ( Assign var (EBinOp op e1' e2')
-                   , updateOneAV var (ATerm (EBinOp op e1' e2')) ctxt, state))
-            Left err -> return (Left err)
-    Assign var (ENot expr) ->
-      let expr' = evalExpr (ENot expr) ctxt
-       in case typeCheck (updateOneAV var (ATerm expr') ctxt) of
-            Right () ->
-              return
-                (Right (Assign var expr', updateOneAV var (ATerm expr') ctxt, state))
-            Left err -> return (Left err)
-    Assign var expr ->
-      case typeCheck (updateOneAV var (ATerm expr) ctxt) of
-        Right () ->
-          return (Right (Assign var expr, updateOneAV var (ATerm expr) ctxt, state)) -- EBool, EInt, EFloat werden einfach so übernommen
-        Left err -> return (Left err)
+          av  = ATerm (EBinOp op e1' e2')
+      withTypeUpdate var av (Assign var (EBinOp op e1' e2')) ctxt state
+    Assign var (ENot e) -> do
+      let e' = evalExpr (ENot e) ctxt
+          av = ATerm e'
+      withTypeUpdate var av (Assign var e') ctxt state
+    Assign var expr -> do
+      let e' = evalExpr expr ctxt
+          av = ATerm e'
+      withTypeUpdate var av (Assign var e') ctxt state
     Send v -> do
       case (setInContext "send" ctxt v) of
         Skip -> return (Left "Cannot send on non-existing channel")
@@ -247,6 +224,11 @@ stmtToST ctxt state st =
       case (setInContext "end" ctxt v) of
         Skip -> return (Left "Cannot close non-existing channel")
         _ -> return (Right (setInContext "end" ctxt v, ctxt, state))
+    Func x decs _ stmt -> do
+      st' <- stmtToST (initialContext decs) 0 stmt
+      case st' of
+        Left err -> return (Left err)
+        Right (st'', ct, _) -> return (Right (Func x decs ct st'', ctxt, state))
     Go s1 s2 -> do
       res <- stmtToST ctxt state s1
       case res of
@@ -262,6 +244,13 @@ stmtToST ctxt state st =
         Right (s', ctxt', state') -> return (Right (For hdr s', ctxt', state'))
         Left err          -> return (Left err)
     _ -> return (Right (st, ctxt, state))
+
+withTypeUpdate :: VarName -> AbstractVal -> Statement -> Context -> Int -> IO (Either String (Statement, Context, Int))
+withTypeUpdate var av stOut ctxt state =
+  let ctxt' = updateOneAV var av ctxt
+  in case typeCheck ctxt' of
+       Right () -> return (Right (stOut, ctxt', state))
+       Left err -> return (Left err)
 
 typeCheck :: Context -> Either String ()
 typeCheck ctxt =
@@ -617,6 +606,7 @@ prettyPrintST x =
         ++ block s
     For (ForHeaderRange var chan) s ->
       "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
+    Func name vars _ p -> "func " ++ show name ++ " " ++ show vars ++ "{" ++ prettyPrintST p ++ "}"
   where
     block :: Statement -> String
     block st@(Sequence _ _) = "{" ++ prettyPrintST st ++ "}"
@@ -738,19 +728,13 @@ dual (Go s1 s2)       = Go (dual s1) (dual s2)
 -- Assign, Skip End bleiben unverändert
 dual x                = x
 
---data Statement
---  = Skip
-
---  | Declare VarName VarType
---  | Make VarName ChanType
---  deriving (Show, Eq)
--- go, for, new, some special if cases -> skip
 strip :: Statement -> Statement
-strip (Go s1 s2) = Skip
-strip (For head s1) = Skip
-strip (Assign var e) = Skip
+strip (Go _ _) = Skip
+strip (For _ _) = Skip
+strip (Assign _ _) = Skip
 strip (Make _ _) = Skip
 strip (Declare _ _) = Skip
+strip (Func _ _ _ _) = Skip
 strip (Sequence s1 s2) = Sequence (strip s1) (strip s2)
 strip (If e s1 s2) =
   case (strip s1, strip s2) of
@@ -759,9 +743,9 @@ strip (If e s1 s2) =
 strip x = x
 
 strip' :: Statement -> Statement
-strip' (Go s1 s2) = Skip
-strip' (For head s1) = Skip
-strip' (Assign var e) = Skip
+strip' (Go _ _) = Skip
+strip' (For _ _) = Skip
+strip' (Assign _ _) = Skip
 strip' (Sequence s1 s2) = Sequence (strip' s1) (strip' s2)
 strip' (If e s1 s2) =
   case (strip' s1, strip' s2) of
@@ -769,16 +753,12 @@ strip' (If e s1 s2) =
     (s1', s2')   -> If e s1' s2'
 strip' x = x
 
-
 -- (s1;s2);s3 ~ s1;(s2;s3)
--- s;skip ~ s
 -- skip;s ~ s
-assocIdRules :: Statement -> Statement
-assocIdRules (Sequence (Skip) s)            = s
-assocIdRules (Sequence s (Skip))            = s
-assocIdRules (Sequence (Sequence s1 s2) s3) = Sequence s1 (Sequence s2 s3)
-assocIdRules x                              = x
-
+assocIdRule :: Statement -> Statement
+assocIdRule (Sequence Skip s) = s
+assocIdRule (Sequence (Sequence s1 s2) s3) = Sequence s1 (Sequence s2 s3)
+assocIdRule x = x
 
 -- idFor not necessary, becomes skip by calling strip function
 -- cond-eta: if (e) {s}{s} ~ s
@@ -789,74 +769,28 @@ condEta (If e s1 s2) =
     else (If e s1 s2)
 condEta x = x
 
-
 -- assoc, id, condeta is applied once on all "nodes"
 applyFirstLevel :: Statement -> Statement
 applyFirstLevel stmt =
   case stmt of
     Sequence s1 s2 ->
-      assocIdRules (Sequence (applyFirstLevel s1) (applyFirstLevel s2))
+      assocIdRule (Sequence (applyFirstLevel s1) (applyFirstLevel s2))
     If e s1 s2 -> condEta (If e (applyFirstLevel s1) (applyFirstLevel s2))
     _ -> stmt
 
-
--- applies a rule until it doesn't change the input anymore
-repeatApply :: (Statement -> Statement) -> Statement -> Statement
-repeatApply f stmt =
-  if (f stmt) == stmt
-    then stmt
-    else repeatApply f (f stmt)
-
-phaseA :: Statement -> Statement
-phaseA stmt = repeatApply applyFirstLevel stmt
-
-
--- if (e) {s1}{s2};s ~ if (e) {s1;s}{s2;s}
-condDist :: Statement -> Statement
-condDist (Sequence (If e s1 s2) s) = If e (Sequence s1 s) (Sequence s2 s)
-condDist x                         = x
-
-
--- apply conddist once on all "nodes"
-applySecondLevel :: Statement -> Statement
-applySecondLevel stmt =
-  case stmt of
-    Sequence s1 s2 ->
-      condDist (Sequence (applySecondLevel s1) (applySecondLevel s2))
-    If e s1 s2 -> If e (applySecondLevel s1) (applySecondLevel s2)
-    _ -> stmt
-
-normalizeST :: Statement -> Statement
-normalizeST stmt = normalize (strip stmt)
+simplification :: Statement -> Statement 
+simplification stmt = repeatApplication applyAllRules (strip' stmt)
   where
-    normalize stmt =
-      let stmtA = phaseA stmt -- "Sie wenden die assoc, die id-Regeln und cond-eta so lange an, bis nichts mehr geht.
-          stmtB = applySecondLevel stmtA
-       in if (stmtA == stmtB) -- ändert condDist unseren ST?
-            then stmtA -- Nein, dann keine Regel mehr anwendbar
-            else normalize stmtB -- Ja, dann einmal cond-dist und wieder assoc, id, cond-eta usw bis keine dieser Regeln mehr anwendbar ist"
-
-normalizeST' :: Statement -> Statement
-normalizeST' stmt = normalize (strip' stmt)
-  where
-    normalize stmt = phaseA stmt
-
--- can test the equivalence of two normalized Statements!
-testEquivalence :: Statement -> Statement -> Bool
-testEquivalence s t =
-  case (s, t) of
-    (Send x, Send y) -> x == y -- atom-send
-    (Receive x, Receive y) -> x == y -- atom-recv
-    (End x, End y) -> x == y -- atom-end
-  -- comp-rule s1 ~ s2 /\ s3 ~ s4 => s1; s3 ~ s2; s4
-    (Sequence s1 s3, Sequence s2 s4) ->
-      testEquivalence s1 s2 && testEquivalence s3 s4
-  -- cond-rule s1 ~ s2 /\ s3 ~ s4 => if (e) {s1}{ s3} ~ if (e) {s2}{ s4}
-    (If e s1 s3, If e' s2 s4) ->
-      e == e' && testEquivalence s1 s2 && testEquivalence s3 s4
-  -- else false
-    _ -> False
-
+    repeatApplication :: (Statement -> Statement) -> Statement -> Statement 
+    repeatApplication f s =
+      if f s == s
+        then s
+        else repeatApplication f (f s)
+    applyAllRules :: Statement -> Statement 
+    applyAllRules s = case s of
+      Sequence s1 s2 -> assocIdRule (Sequence (applyAllRules s1) (applyAllRules s2))
+      If e s1 s2 -> condEta (If e (applyFirstLevel s1) (applyFirstLevel s2))
+      _ -> s
 
 -- generates the unique variable names
 freshName :: FreshM VarName
@@ -864,7 +798,6 @@ freshName = do
   n <- get
   put (n + 1)
   return $ VarName ("a" ++ show n)
-
 
 -- takes a normalized ST and renames all varnames for channels in the same way to
 -- test if two STs are the same despite their different channel names
@@ -879,35 +812,36 @@ canonicalizeChannelNames stmt list =
       -> FreshM (Statement, Map.Map VarName VarName)
     canonicalizeHelper stmt assignments =
       case stmt of
+        Make v t -> return (Make v t, Map.insert v v assignments)
         Send v ->
           case Map.lookup v assignments of
-            Just new -> return ((Send new), assignments)
+            Just new -> return (Send new, assignments)
             Nothing -> do
               new <- freshName
               let assignments' = Map.insert v new assignments
-              return ((Send new), assignments')
+              return (Send new, assignments')
         Receive v ->
           case Map.lookup v assignments of
-            Just new -> return ((Receive new), assignments)
+            Just new -> return (Receive new, assignments)
             Nothing -> do
               new <- freshName
               let assignments' = Map.insert v new assignments
-              return ((Receive new), assignments')
+              return (Receive new, assignments')
         End v ->
           case Map.lookup v assignments of
-            Just new -> return ((End new), assignments)
+            Just new -> return (End new, assignments)
             Nothing -> do
               new <- freshName
               let assignments' = Map.insert v new assignments
-              return ((End new), assignments')
+              return (End new, assignments')
         If expr stmt1 stmt2 -> do
           (stmt1', assignments1) <- canonicalizeHelper stmt1 assignments
           (stmt2', assignments2) <- canonicalizeHelper stmt2 assignments1
-          return ((If expr stmt1' stmt2'), assignments2)
+          return (If expr stmt1' stmt2', assignments2)
         Sequence stmt1 stmt2 -> do
           (stmt1', assignments1) <- canonicalizeHelper stmt1 assignments
           (stmt2', assignments2) <- canonicalizeHelper stmt2 assignments1
-          return ((Sequence stmt1' stmt2'), assignments2)
+          return (Sequence stmt1' stmt2', assignments2)
         x -> return (x, assignments)
 
 hasVars :: Expr -> Bool
@@ -916,12 +850,6 @@ hasVars (EBinOp _ e1 e2) = hasVars e1 || hasVars e2
 hasVars (ENot e)         = hasVars e
 hasVars _                = False
 
---data AbstractVal
---  = AChan ChannelID -- Kanalname
---  | AIf Expr AbstractVal AbstractVal -- eine Auswahl zwischen verschiedenen Abstract Values
---  | ATerm Expr -- Ein Ausdruck
---  | AUnknown -- noch unbekannt
---  deriving (Show)
 expressionToSymbolic :: SMTEnv -> Expr -> Context -> Symbolic SBVal
 expressionToSymbolic env expr ctxt =
   case expr of
@@ -1109,4 +1037,4 @@ resolveIf (If e s1 s2) ctxt = do
     "then branch" -> return s1
     "case split"  -> return (If e s1 s2)
     _             -> return Skip
-resolveIf x ctxt = return x
+resolveIf x _ = return x

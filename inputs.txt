@@ -62,11 +62,9 @@ func foo (c1 chan int, c2 chan int, c chan int){
     close c2
 }
 ---
-func bar (x int, y int, c1 chan int, c2 chan int){
-    x = <- c1
-    y = <- c2
-    close c1
-    close c2
+func bar (x int, y int, c1 chan int, c2 chan int, c chan int){
+    <- c1
+    <- c2
 }
 ---
 // Paar 5 auf c schreiben nach close c nicht erlaubt -> equiv FALSE!
@@ -154,8 +152,6 @@ func foo (c1 chan int, c2 chan int, b bool){
 func bar (c1 chan int, c2 chan int){
     x = <- c1
     y = <- c2
-    close c1
-    close c2
 }
 ---
 
@@ -571,28 +567,66 @@ func foo (x int, y int, z int, c chan int){
 }
 ---
 func bar (c chan int){
-    c <-1
+    <- c
 }
 ---
 //Paar 36
-func foo (b bool, c chan int, c2 chan int, c1 chan int, x int){
+func foo (b bool, c chan int, c2 chan int, c1 chan int){
     c := c1
-    if b then x := 5 else x := 6
-    if x>0 then x := 2 else x := 1
     if b then x := 5 else c := c2
     c <- 2
 }
 ---
-func bar (c chan int){
+func bar (c chan int, x int){
     var b bool
+    var c1 chan int
     var c2 chan int
+    c1 := make (chan int)
     c2 := make (chan int)
-    close c
-    var c3 chan bool
-    c3 := make (chan bool)
-    b := false && true
-    if !b then <- c3 else skip
+    if b then c := c1 else c := c2
+    c <- 1
 }
+---
+// Paar 37
+func foo (c1 chan int, c2 chan int){
+    var b bool
+    if b then close c1 else close c2
+}
+---
+func bar (c1 chan int, c2 chan int, b bool){
+    if b then close c1 else close c2
+}
+---
+// Paar 38
+func foo (c1 chan int, c2 chan int, b bool){
+    if !b then close c2 else close c1
+}
+---
+func bar (c1 chan int, c2 chan int, b bool){
+    if b then close c1 else close c2
+}
+---
+func p1(c1 chan int, c2 chan int, c chan int, x int){
+        c := c1
+        c <- 1
+        c := c2
+        func foo(c chan int){<-c}
+        c <- 1
+        if (x<0) then <- c1 else skip 
+        close c1
+        close c2
+}
+---
+func p2(c1 chan int, c2 chan int, x int){
+    <- c1
+    <- c2
+    var c chan int
+    c := make (chan int)
+    if (x>=0) then c<-1 else c1<-1
+    close c
+}
+
+
 
 //func foo (c chan int){
 //    c <- 1

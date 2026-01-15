@@ -7,7 +7,7 @@ import           Control.Monad.Combinators.Expr
 import           Data.Void
 import           Text.Megaparsec
 import           Control.Monad.Combinators.Expr
-
+import qualified Data.Map            as Map
 type Parser = Parsec Void String
 
 
@@ -124,6 +124,23 @@ headerParser = do
   _ <- char ')'
   return decs
 
+funcParser :: Parser Statement
+funcParser = do
+  spaceConsumer
+  _ <- string "func"
+  spaceConsumer
+  name <- identifier
+  spaceConsumer
+  _ <- char '('
+  decs <- parameterParser `sepEndBy` string ", "
+  spaceConsumer
+  _ <- char ')'
+  spaceConsumer
+  _ <- char '{'
+  stmt <- parseStatement
+  _ <- char '}'
+  return (Func (VarName name) decs Map.empty stmt)
+
 -- ( ... )-Ausdrücke
 parensExpr :: Parser Expr
 parensExpr = do
@@ -181,6 +198,7 @@ parseSingleStatement = do
     <|> try parseSkip
     <|> try parseFor
     <|> try varDecParser
+    <|> try funcParser
     <|> parseIf
 
 parseMake :: Parser Statement
