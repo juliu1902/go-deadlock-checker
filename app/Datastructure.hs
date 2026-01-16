@@ -4,7 +4,7 @@ import           Control.Monad.State
 import qualified Data.List           as List
 import qualified Data.Map            as Map (Map, delete, deleteMin,
                                              fromList, insert, lookup,
-                                             lookupMin, map, toList)
+                                             lookupMin, map, toList, union, empty)
 import           Data.SBV            (SBool, SInteger, SMTResult (..),
                                       SatResult (..), Symbolic, literal,
                                       sBool, sInteger, sMod, sNot, sTrue,
@@ -20,10 +20,11 @@ data Statement
   | If Expr Statement Statement
   | For ForHeader Statement
   | Assign VarName Expr
-  | Go Statement Statement
+  | Go Statement -- go {} {}
   | Declare VarName VarType
   | Make VarName ChanType
-  | Func  VarName VarDecs Context Statement
+  | Func  VarName VarDecs Statement -- func foo(...)
+  | GoCall VarName [VarName] -- go foo(...)
   deriving (Show, Eq)
 
 
@@ -144,44 +145,48 @@ data SBVal
 
 type SMTEnv = Map.Map VarName SBVal
 
+-- key: functions name, value: params(variable, vartype), statement
+type FuncEnv = Map.Map VarName (VarDecs, Statement)
+
 -- evaluates conditions and considers the context when there is a send/receive
-stmtToST :: Context -> Int -> Statement -> IO (Either String (Statement, Context, Int))
-stmtToST ctxt state st =
+stmtToST :: FuncEnv -> Context -> Int -> Statement -> IO (Either String (FuncEnv, Statement, Context, Int))
+stmtToST funcs ctxt state st =
   case st of
     Declare v t -> do
       case typeCheck (Map.insert v (t, AUnknown) ctxt) of -- logic could added here to prevent redeclaring a variable that has already been declared
-        Right _ -> return $ Right (Declare v t, (Map.insert v (t, AUnknown) ctxt), state)
+        Right _ -> return $ Right (funcs, Declare v t, (Map.insert v (t, AUnknown) ctxt), state)
         Left err -> return $ Left err
     Make v chant -> do
       let idname = "oid" ++ show state
       let freshId = ChannelID idname
-      return (Right (Make (VarName idname) chant, updateOneAV v (AChan freshId) ctxt, state+1))
+      return (Right (funcs, Make (VarName idname) chant, updateOneAV v (AChan freshId) ctxt, state+1))
     Sequence s1 s2 -> do
-      res1 <- stmtToST ctxt state s1
+      res1 <- stmtToST funcs ctxt state s1
       case res1 of
-        Right (s1', ctxt1, state1) -> do
-          res2 <- stmtToST ctxt1 state1 s2
+        Right (f, s1', ctxt1, state1) -> do
+          res2 <- stmtToST f ctxt1 state1 s2
           case res2 of
-            Right (s2', ctxt2, state2) -> return (Right (Sequence s1' s2', ctxt2, state2))
+            Right (f2, s2', ctxt2, state2) -> return (Right (f2, Sequence s1' s2', ctxt2, state2))
             Left err           -> return (Left err)
         Left err -> return (Left err)
     If e s1 s2 -> do
-      res1 <- stmtToST ctxt state s1
+      res1 <- stmtToST funcs ctxt state s1
       case res1 of
-        Right (s1', ctxt1, state1) -> do
-          res2 <- stmtToST ctxt state s2
+        Right (f1, s1', ctxt1, state1) -> do
+          res2 <- stmtToST funcs ctxt state s2
           case res2 of
-            Right (s2', ctxt2, state2) ->
+            Right (f2, s2', ctxt2, state2) ->
               let e' = evalExpr e ctxt -- auch hier evalExpr, damit Variablen aus der Bedingung ihren aktuellen Wert aus dem AV im Context bekommen
                   ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
                in case checkTypeOfExpression TBool e' ctxt of
                     True -> do
                       resolved <- resolveIf (If e' s1 s2) ctxt
                       if resolved == s1
-                        then return (Right (s1', ctxt1, state1))
+                        then return (Right (f1, s1', ctxt1, state1))
                         else if resolved == s2
-                               then return (Right (s2', ctxt2, state2))
-                               else if state1 > state2 then return (Right (If e' s1' s2', ctxtMerged, state1)) else return (Right (If e' s1' s2', ctxtMerged, state2))
+                               then return (Right (f2, s2', ctxt2, state2))
+                               -- TODO if the branches of an if define a function that are called the same, the function in the else will be ignored!
+                               else if state1 > state2 then return (Right (Map.union f1 f2, If e' s1' s2', ctxtMerged, state1)) else return (Right (Map.union f1 f2, If e' s1' s2', ctxtMerged, state2)) 
                     False ->
                       return
                         (Left
@@ -192,64 +197,93 @@ stmtToST ctxt state st =
      ->
       case lookupAV x ctxt of
         ATerm e ->
-          withTypeUpdate var (ATerm e) (Assign var e) ctxt state
+          withTypeUpdate var (ATerm e) funcs (Assign var e) ctxt state
         AIf e av1 av2 ->
-          withTypeUpdate var (AIf e av1 av2) (Assign var (EVar x)) ctxt state
+          withTypeUpdate var (AIf e av1 av2) funcs (Assign var (EVar x)) ctxt state
         AChan chanID ->
-          withTypeUpdate var (AChan chanID) (Assign var (EVar x))  ctxt state
+          withTypeUpdate var (AChan chanID) funcs (Assign var (EVar x))  ctxt state
         _ -> -- var bekommt einfach ATerm x
-          withTypeUpdate var (ATerm (EVar x)) (Assign var (EVar x)) ctxt state
+          withTypeUpdate var (ATerm (EVar x)) funcs (Assign var (EVar x)) ctxt state
     Assign var (EBinOp op e1 e2) -> do
       let e1' = evalExpr e1 ctxt
           e2' = evalExpr e2 ctxt
           av  = ATerm (EBinOp op e1' e2')
-      withTypeUpdate var av (Assign var (EBinOp op e1' e2')) ctxt state
+      withTypeUpdate var av funcs (Assign var (EBinOp op e1' e2')) ctxt state
     Assign var (ENot e) -> do
       let e' = evalExpr (ENot e) ctxt
           av = ATerm e'
-      withTypeUpdate var av (Assign var e') ctxt state
+      withTypeUpdate var av funcs (Assign var e') ctxt state
     Assign var expr -> do
       let e' = evalExpr expr ctxt
           av = ATerm e'
-      withTypeUpdate var av (Assign var e') ctxt state
+      withTypeUpdate var av funcs (Assign var e') ctxt state
     Send v -> do
       case (setInContext "send" ctxt v) of
         Skip -> return (Left "Cannot send on non-existing channel")
-        _ -> return (Right (setInContext "send" ctxt v, ctxt, state))
+        _ -> return (Right (funcs, setInContext "send" ctxt v, ctxt, state))
     Receive v -> do
       case (setInContext "recv" ctxt v) of 
         Skip -> return (Left "Cannot Receive on non-existing channel")
-        _ -> return (Right (setInContext "recv" ctxt v, ctxt, state))
+        _ -> return (Right (funcs, setInContext "recv" ctxt v, ctxt, state))
     End v -> 
       case (setInContext "end" ctxt v) of
         Skip -> return (Left "Cannot close non-existing channel")
-        _ -> return (Right (setInContext "end" ctxt v, ctxt, state))
-    Func x decs _ stmt -> do
-      st' <- stmtToST (initialContext decs) 0 stmt
+        _ -> return (Right (funcs, setInContext "end" ctxt v, ctxt, state))
+    Func x decs stmt -> do
+      st' <- stmtToST Map.empty (initialContext decs) 0 stmt
       case st' of
         Left err -> return (Left err)
-        Right (st'', ct, _) -> return (Right (Func x decs ct st'', ctxt, state))
-    Go s1 s2 -> do
-      res <- stmtToST ctxt state s1
-      case res of
-        Left err -> return (Left err)
-        Right (s1', ctxt1, state1) -> do
-          res2 <- stmtToST ctxt1 state1 s2
-          case res2 of
-            Left err           -> return (Left err)
-            Right (s2', ctxt2, state2) -> return (Right (Go s1' s2', ctxt2, state2))
+        Right (f', st'', _, _) -> return (Right (Map.insert x (decs, stmt) funcs, Skip, ctxt, state))
+    GoCall name args -> do
+      case Map.lookup name funcs of
+        Nothing -> return (Left ("Unknown function in go call: " ++ show name))
+        Just (params, stmt) -> do
+          let projections = [(p, a) | ((p, _), a) <- zip params args]              
+              substituted = replaceAll projections stmt
+          res <- stmtToST funcs ctxt state substituted
+          case res of
+            Left err -> return (Left err)
+            Right (_, goroutineST, _, state') ->
+              return (Right (funcs, Go goroutineST, ctxt, state'))
     For hdr s -> do
-      res <- stmtToST ctxt state s
+      res <- stmtToST funcs ctxt state s
       case res of
-        Right (s', ctxt', state') -> return (Right (For hdr s', ctxt', state'))
+        Right (f, s', ctxt', state') -> return (Right (f, For hdr s', ctxt', state'))
         Left err          -> return (Left err)
-    _ -> return (Right (st, ctxt, state))
+    _ -> return (Right (funcs, st, ctxt, state))
+--type VarDec = (VarName, VarType)
+-- key: functions name, value: params(variable, vartype), statement
+-- type FuncEnv = Map.Map VarName (VarDecs, Statement)
+replaceAll :: [(VarName, VarName)] -> Statement -> Statement
+replaceAll ((old, new):xs) stmt = replaceAll xs (replace (old,new) stmt)
+replaceAll [] stmt = stmt
 
-withTypeUpdate :: VarName -> AbstractVal -> Statement -> Context -> Int -> IO (Either String (Statement, Context, Int))
-withTypeUpdate var av stOut ctxt state =
+replace :: (VarName, VarName) -> Statement -> Statement
+replace mapping@(old, new) stmt = case stmt of
+  Skip -> Skip
+  Sequence st1 st2 -> Sequence (replace mapping st1) (replace mapping st2)
+  Send v -> if v==old then Send new else Send v
+  Receive v -> if v==old then Receive new else Receive v
+  End v -> if v==old then End new else End v
+  If e s1 s2 -> If (replaceExpression mapping e) (replace mapping s1) (replace mapping s2)
+  For h st -> For h (replace mapping st) --later: h must be checked too!
+  Assign var expr -> if var==old then Assign new (replaceExpression mapping expr) else Assign old (replaceExpression mapping expr)
+  Go st -> Go $ replace mapping st
+  x -> x
+
+replaceExpression :: (VarName, VarName) -> Expr -> Expr
+replaceExpression (old, new) e = case e of
+  EVar x -> if x==old then EVar new else EVar x
+  EBinOp op e1 e2 -> EBinOp op (replaceExpression (old, new) e1) (replaceExpression (old,new) e2)
+  ENot expr -> ENot (replaceExpression (old, new) expr)
+  x -> x
+
+
+withTypeUpdate :: VarName -> AbstractVal -> FuncEnv -> Statement -> Context -> Int -> IO (Either String (FuncEnv, Statement, Context, Int))
+withTypeUpdate var av funcs stOut ctxt state =
   let ctxt' = updateOneAV var av ctxt
   in case typeCheck ctxt' of
-       Right () -> return (Right (stOut, ctxt', state))
+       Right () -> return (Right (funcs, stOut, ctxt', state))
        Left err -> return (Left err)
 
 typeCheck :: Context -> Either String ()
@@ -587,8 +621,8 @@ prettyPrintST x =
       | not (onlyAssigns s1) && onlyAssigns s2 ->
         block s1 ++ " if " ++ show e ++ " else skip"
       | otherwise -> block s1 ++ " if " ++ show e ++ " else " ++ block s2
-    Go s1 s2 ->
-      "go" ++ "{" ++ prettyPrintST s1 ++ "}" ++ "{" ++ prettyPrintST s2 ++ "}"
+    Go s1 ->
+      "go" ++ "(" ++ prettyPrintST s1 ++ ")"
     Assign _ _ -> ""
     Declare _ _ -> ""
     For (ForHeaderRunning var start e incdec) s ->
@@ -606,7 +640,8 @@ prettyPrintST x =
         ++ block s
     For (ForHeaderRange var chan) s ->
       "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
-    Func name vars _ p -> "func " ++ show name ++ " " ++ show vars ++ "{" ++ prettyPrintST p ++ "}"
+    Func name vars p -> "func " ++ show name ++ " " ++ show vars ++ "{" ++ prettyPrintST p ++ "}"
+    GoCall _ _ -> ""
   where
     block :: Statement -> String
     block st@(Sequence _ _) = "{" ++ prettyPrintST st ++ "}"
@@ -716,34 +751,7 @@ mergeIfContexts cond c1 c2 =
             abstractEq AUnknown AUnknown     = True
             abstractEq _ _                   = False
 
-
--- flips the directions of all communications
-dual :: Statement -> Statement
-dual (Send var)       = Receive var
-dual (Receive var)    = Send var
-dual (Sequence s1 s2) = Sequence (dual s1) (dual s2)
-dual (If e s1 s2)     = If e (dual s1) (dual s2)
-dual (For head s)     = For head (dual s)
-dual (Go s1 s2)       = Go (dual s1) (dual s2)
--- Assign, Skip End bleiben unverändert
-dual x                = x
-
-strip :: Statement -> Statement
-strip (Go _ _) = Skip
-strip (For _ _) = Skip
-strip (Assign _ _) = Skip
-strip (Make _ _) = Skip
-strip (Declare _ _) = Skip
-strip (Func _ _ _ _) = Skip
-strip (Sequence s1 s2) = Sequence (strip s1) (strip s2)
-strip (If e s1 s2) =
-  case (strip s1, strip s2) of
-    (Skip, Skip) -> Skip -- if ... then assign... else assign...
-    (s1', s2')   -> If e s1' s2'
-strip x = x
-
 strip' :: Statement -> Statement
-strip' (Go _ _) = Skip
 strip' (For _ _) = Skip
 strip' (Assign _ _) = Skip
 strip' (Sequence s1 s2) = Sequence (strip' s1) (strip' s2)

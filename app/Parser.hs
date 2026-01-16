@@ -43,12 +43,12 @@ parseVar :: Parser VarName
 parseVar = VarName <$> identifier
 
 
--- Ausdrücke wie i := 0 oder c = c1
+-- Ausdrücke wie i = 0 oder c = c1
 parseAssign :: Parser Statement
 parseAssign = do
   i <- parseVar
   spaceConsumer
-  _ <- try (string ":=") <|> string "="
+  _ <- string "="
   spaceConsumer
   expr <- expressionParser
   spaceConsumer
@@ -119,7 +119,7 @@ headerParser = do
   _ <- identifier
   spaceConsumer
   _ <- char '('
-  decs <- parameterParser `sepEndBy` string ", "
+  decs <- parameterParser `sepBy` (spaceConsumer *> char ',' <* spaceConsumer)
   spaceConsumer
   _ <- char ')'
   return decs
@@ -132,14 +132,30 @@ funcParser = do
   name <- identifier
   spaceConsumer
   _ <- char '('
-  decs <- parameterParser `sepEndBy` string ", "
+  decs <- parameterParser `sepBy` (spaceConsumer *> char ',' <* spaceConsumer)
   spaceConsumer
   _ <- char ')'
   spaceConsumer
   _ <- char '{'
   stmt <- parseStatement
   _ <- char '}'
-  return (Func (VarName name) decs Map.empty stmt)
+  return (Func (VarName name) decs stmt)
+
+goParser :: Parser Statement
+goParser = do
+  spaceConsumer
+  _ <- string "go"
+  spaceConsumer
+  name <- identifier
+  spaceConsumer
+  _ <- char '('
+  spaceConsumer
+  args <- parseVar `sepBy` (spaceConsumer *> char ',' <* spaceConsumer)
+  _ <- char ')'
+  return (GoCall (VarName name) args)
+
+
+
 
 -- ( ... )-Ausdrücke
 parensExpr :: Parser Expr
@@ -198,6 +214,7 @@ parseSingleStatement = do
     <|> try parseSkip
     <|> try parseFor
     <|> try varDecParser
+    <|> try goParser
     <|> try funcParser
     <|> parseIf
 
@@ -206,7 +223,7 @@ parseMake = do
   spaceConsumer
   c <- identifier
   spaceConsumer
-  _ <- string ":="
+  _ <- string "="
   spaceConsumer
   _ <- string "make"
   spaceConsumer
@@ -272,8 +289,6 @@ recParser :: Parser Statement
 recParser = do 
   spaceConsumer
   _ <- identifier
-  spaceConsumer
-  _ <- optional (char ':')
   spaceConsumer
   _ <- char '='
   spaceConsumer

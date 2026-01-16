@@ -11,6 +11,7 @@ import           Text.Megaparsec
 import           AlternativeST
 import           Equivalence
 import           Duality
+import Data.SBV.Tuple (_1)
 
 -- Parses a program and returns its Session Type or an error if it couldn't be parsed
 buildST' :: String -> IO (Either String (Statement, Context))
@@ -19,17 +20,17 @@ buildST' src =
     Left err ->
       return (Left $ "Fehler beim Parsen: " ++ (errorBundlePretty err))
     Right (Program decs stmt) -> do
-      st <- stmtToST (initialContext decs) 0 stmt 
+      st <- stmtToST Map.empty (initialContext decs) 0 stmt 
       case st of
         Left err         -> return (Left $ "Fehler bei Typprüfung: " ++ err)
-        Right (s, ctxt, state) -> return (Right (s, ctxt))
+        Right (_, s, ctxt, state) -> return (Right (s, ctxt))
 
 buildAlternativeST :: String -> IO (Statement, Context)
 buildAlternativeST src =
   case runParser parseProgram "" src of
     Left _ -> return (Skip, Map.empty)
     Right (Program decs stmt) -> do
-      (resST, _, _) <- alternativeSTNaming (initialContext decs) 0 stmt
+      (resST, _, _, _) <- alternativeSTNaming Map.empty (initialContext decs) 0 stmt
       return (resST, initialContext decs)
 
 
@@ -138,7 +139,5 @@ runCase i (srcA, srcB) = do
       putStrLn ("A ^ B? " ++ show resDual)
       --putStrLn $ show stA
       --print $ show (simplification stA)
-      --
       print $ simplification (canonicalizeChannelNames stA Map.empty)
-      --
       print $ simplification (canonicalizeChannelNames stB Map.empty)
