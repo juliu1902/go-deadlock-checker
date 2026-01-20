@@ -129,15 +129,18 @@ runCase i (srcA, srcB) = do
         ("Canonized B: "
            ++ prettyPrintST
                 (canonicalizeChannelNames (simplification stB) Map.empty))
-
       --putStrLn $ "\nContext A: " ++ show ctA
       --putStrLn $ "Context B: " ++ show ctB
       putStrLn "\nTests:"
-      resEquiv <- testEquivalence' paramContext1 paramContext2 [] (Sequence (canonicalizeChannelNames stA Map.empty) Skip) (Sequence (canonicalizeChannelNames stB Map.empty) Skip)
+      resEquiv <- testEquivalence' paramContext1 paramContext2 [] (addSkip (canonicalizeChannelNames stA Map.empty)) (addSkip (canonicalizeChannelNames stB Map.empty))
       putStrLn ("A ~ B? " ++  show resEquiv)
-      resDual <- testDuality paramContext1 paramContext2 [] [] [] (Sequence (canonicalizeChannelNames stA Map.empty) Skip) (Sequence (canonicalizeChannelNames stB Map.empty) Skip)
+      resDual <- testDuality paramContext1 paramContext2 [] [] [] (addSkip (canonicalizeChannelNames stA Map.empty)) (addSkip (canonicalizeChannelNames stB Map.empty))
       putStrLn ("A ^ B? " ++ show resDual)
       --putStrLn $ show stA
       --print $ show (simplification stA)
-      print $ simplification (canonicalizeChannelNames stA Map.empty)
-      print $ simplification (canonicalizeChannelNames stB Map.empty)
+      print (addSkip (canonicalizeChannelNames stA Map.empty))
+      print $ prettyPrintST (addSkip (canonicalizeChannelNames stA Map.empty))
+      print (addSkip (canonicalizeChannelNames stB Map.empty))
+      --print $ prettyPrintST ((canonicalizeChannelNames stA Map.empty))
+      print $ prettyPrintST (addSkip (canonicalizeChannelNames stB Map.empty))
+      --print $ prettyPrintST (simplification (addSkip (canonicalizeChannelNames stB Map.empty)))

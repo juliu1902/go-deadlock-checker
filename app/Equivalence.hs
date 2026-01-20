@@ -35,8 +35,8 @@ testEquivalence' ctxt1 ctxt2 assumptions st1 st2 = do -- simplification and cano
         TInt -> testEquivalence' ctxt1 (Map.insert v (TInt, AUnknown) ctxt2) assumptions s1 s2
         _ -> testEquivalence' ctxt1 ctxt2 assumptions s1 s2  
   -- IGNORE MAKE
-    (Sequence (Make _ _) s1, s2) -> testEquivalence' ctxt1 ctxt2 assumptions s1 s2 
-    (s1, Sequence (Make _ _) s2) -> testEquivalence' ctxt1 ctxt2 assumptions s1 s2 
+    (Make _ _ s1 , s2) -> testEquivalence' ctxt1 ctxt2 assumptions s1 s2 
+    (s1, Make _ _ s2) -> testEquivalence' ctxt1 ctxt2 assumptions s1 s2 
   -- CONDS
     (Sequence (If e s1 s2) s0, s) -> do
       resEntails <- entails ctxt1 assumptions e

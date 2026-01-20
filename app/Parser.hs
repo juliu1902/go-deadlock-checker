@@ -206,8 +206,7 @@ expressionParser = makeExprParser term table
 
 parseSingleStatement :: Parser Statement
 parseSingleStatement = do
-  try parseMake
-    <|> try parseAssign
+  try parseAssign
     <|> try parseEnd
     <|> try parseRec
     <|> try parseSend
@@ -231,19 +230,12 @@ parseMake = do
   spaceConsumer
   _ <- string "chan"
   spaceConsumer
-  make <- try (parseIntChannel c) <|> (parseBoolChannel c)
+  chanType <- try (string "int" >> return CInt) <|> (string "bool" >> return CBool)
   spaceConsumer
   _ <- char ')'
-  return make
-  where
-    parseIntChannel :: String -> Parser Statement
-    parseIntChannel c = do
-      _ <- string "int"
-      return $ Make (VarName c) CInt
-    parseBoolChannel :: String -> Parser Statement
-    parseBoolChannel c = do
-      _ <- string "bool"
-      return $ Make (VarName c) CBool
+  spaceConsumer
+  stmt <- try parseSequence <|> parseStatement
+  return $ Make (VarName c) chanType stmt
 
 
 --parseMakeBlock :: Parser Statement
@@ -404,7 +396,7 @@ parseSequence = do
 -- Sequence Parser hier indirekt verbaut
 parseStatement :: Parser Statement
 parseStatement = do
-  stmts <- parseSingleStatement `sepEndBy1` spaceConsumer
+  stmts <- (try parseMake <|> parseSingleStatement) `sepEndBy1` spaceConsumer
   return $ foldr1 Sequence stmts
 
 parseProgram :: Parser Program

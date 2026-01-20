@@ -8,6 +8,20 @@ testDuality :: Context -> Context -> [Expr] -> [VarName] -> [VarName] -> Stateme
 testDuality ctxt1 ctxt2 assumptions closeds locals st1 st2 = do -- simplification and canonicalization
     case (simplification st1, simplification st2) of
         (Skip, Skip) -> return True -- ATOM-DUAL-SKIP
+        (Make oid _ s1, s2) -> do
+            if oid `notElem` (locals ++ closeds) then 
+                -- MAKE-L
+                testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [oid]) s1 s2
+                -- MAKE-RENAME-L
+                else let fresh = freshLocal (length locals)
+                      in testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [fresh]) (renameChan oid fresh s1) s2
+        (s1, Make oid _ s2) -> do
+            if oid `notElem` (locals ++ closeds) then 
+                -- MAKE-R
+                testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [oid]) s1 s2
+                -- MAKE-RENAME-R
+                else let fresh = freshLocal (length locals)
+                      in testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [fresh]) s1 (renameChan oid fresh s2)
         -- DECLARE
         (Sequence (Declare v t) s1, s2) -> do
             case t of
@@ -20,20 +34,6 @@ testDuality ctxt1 ctxt2 assumptions closeds locals st1 st2 = do -- simplificatio
                 TBool -> testDuality ctxt1 (Map.insert v (TBool, AUnknown) ctxt2) assumptions closeds locals s1 s2
                 TInt -> testDuality ctxt1 (Map.insert v (TInt, AUnknown) ctxt2) assumptions closeds locals s1 s2
                 _ -> testDuality ctxt1 ctxt2 assumptions closeds locals s1 s2
-        (Sequence (Make oid _) s1, s2) -> do
-            if oid `notElem` (locals ++ closeds) then 
-                -- MAKE-L
-                testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [oid]) s1 s2
-                -- MAKE-RENAME-L
-                else let fresh = freshLocal (length locals)
-                      in testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [fresh]) (renameChan oid fresh s1) s2
-        (s1, Sequence (Make oid _) s2) -> do
-            if oid `notElem` (locals ++ closeds) then 
-                -- MAKE-R
-                testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [oid]) s1 s2
-                -- MAKE-RENAME-L
-                else let fresh = freshLocal (length locals)
-                      in testDuality ctxt1 ctxt2 assumptions closeds (locals ++ [fresh]) s1 (renameChan oid fresh s2)
         (Sequence (Send x) s1, s2) -- MAKE-SEND-L
             | x `elem` locals -> testDuality ctxt1 ctxt2 assumptions closeds locals s1 s2
         (s1, Sequence (Send x) s2) -- MAKE-SEND-R
@@ -86,6 +86,7 @@ renameChan old new st = case st of
   Send x       -> Send (if x == old then new else x)
   Receive x   -> Receive (if x == old then new else x)
   End x       -> End (if x == old then new else x)
+  Make v t s   -> Make (if v == old then new else v) t (renameChan old new s)
   Sequence s1 s2 -> Sequence (renameChan old new s1) (renameChan old new s2)
   If e a b     -> If e (renameChan old new a) (renameChan old new b)
   x        -> x

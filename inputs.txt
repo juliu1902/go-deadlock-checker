@@ -598,7 +598,7 @@ func bar (c1 chan int, c2 chan int, b bool){
 }
 ---
 // Paar 38
-func foo (c1 chan int, c2 chan int, b bool){
+func foo (c chan int, c1 chan int, c2 chan int, b bool){
     if !b then close c2 else close c1
 }
 ---
@@ -642,5 +642,11 @@ func foo (c chan int){
     skip
 }
 
-make id0.go(id0!;id0#);id0?;d!;id0#
-make id0.id0!;id0#;id0?;d!;
+//make id0.go(id0!;id0#);id0?;d!;id0#
+//make id0.id0!;id0#;id0?;d!;
+//
+//id1# if b else id0#
+//id0# if !b else id1#
+//
+//a0# if b else a1#
+//a0# if !b else a1#

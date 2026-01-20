@@ -22,7 +22,7 @@ data Statement
   | Assign VarName Expr
   | Go Statement -- go {} {}
   | Declare VarName VarType
-  | Make VarName ChanType
+  | Make VarName ChanType Statement
   | Func  VarName VarDecs Statement -- func foo(...)
   | GoCall VarName [VarName] -- go foo(...)
   deriving (Show, Eq)
@@ -156,10 +156,14 @@ stmtToST funcs ctxt state st =
       case typeCheck (Map.insert v (t, AUnknown) ctxt) of -- logic could added here to prevent redeclaring a variable that has already been declared
         Right _ -> return $ Right (funcs, Declare v t, (Map.insert v (t, AUnknown) ctxt), state)
         Left err -> return $ Left err
-    Make v chant -> do
+    Make v chant stmt -> do
       let idname = "oid" ++ show state
       let freshId = ChannelID idname
-      return (Right (funcs, Make (VarName idname) chant, updateOneAV v (AChan freshId) ctxt, state+1))
+      let ctxt' = updateOneAV v (AChan freshId) ctxt
+      res <- stmtToST funcs ctxt' (state+1) stmt
+      case res of
+        Right (f, stmt', ctxt'', state') -> return (Right (f, Make (VarName idname) chant stmt', ctxt'', state'))
+        Left err -> return (Left err)
     Sequence s1 s2 -> do
       res1 <- stmtToST funcs ctxt state s1
       case res1 of
@@ -258,6 +262,14 @@ replaceAll :: [(VarName, VarName)] -> Statement -> Statement
 replaceAll ((old, new):xs) stmt = replaceAll xs (replace (old,new) stmt)
 replaceAll [] stmt = stmt
 
+addSkip :: Statement -> Statement
+addSkip stmt = case stmt of
+  Sequence _ Skip -> stmt  -- bereits Skip am Ende, nichts zu tun
+  Sequence s1 s2 -> Sequence s1 (addSkip s2)
+  Make x v st -> Make x v (addSkip st) 
+  Skip -> stmt  -- schon Skip, nichts hinzufügen
+  x -> Sequence x Skip
+
 replace :: (VarName, VarName) -> Statement -> Statement
 replace mapping@(old, new) stmt = case stmt of
   Skip -> Skip
@@ -268,6 +280,7 @@ replace mapping@(old, new) stmt = case stmt of
   If e s1 s2 -> If (replaceExpression mapping e) (replace mapping s1) (replace mapping s2)
   For h st -> For h (replace mapping st) --later: h must be checked too!
   Assign var expr -> if var==old then Assign new (replaceExpression mapping expr) else Assign old (replaceExpression mapping expr)
+  Make var t st -> if var==old then Make new t (replace mapping st) else Make var t (replace mapping st)
   Go st -> Go $ replace mapping st
   x -> x
 
@@ -591,7 +604,7 @@ setInContext mode ctxt v =
 prettyPrintST :: Statement -> String
 prettyPrintST x =
   case x of
-    Make (VarName ch) _ -> "make " ++ ch
+    Make (VarName ch) _ stmt -> "make " ++ ch ++ "." ++ prettyPrintST stmt
     Skip -> "skip"
     Send (VarName ch) -> ch ++ "!"
     Receive (VarName ch) -> ch ++ "?"
@@ -754,6 +767,7 @@ mergeIfContexts cond c1 c2 =
 strip' :: Statement -> Statement
 strip' (For _ _) = Skip
 strip' (Assign _ _) = Skip
+strip' (Make v t stmt) = Make v t (strip' stmt)
 strip' (Sequence s1 s2) = Sequence (strip' s1) (strip' s2)
 strip' (If e s1 s2) =
   case (strip' s1, strip' s2) of
@@ -820,7 +834,9 @@ canonicalizeChannelNames stmt list =
       -> FreshM (Statement, Map.Map VarName VarName)
     canonicalizeHelper stmt assignments =
       case stmt of
-        Make v t -> return (Make v t, Map.insert v v assignments)
+        Make v t stmt -> do
+          (stmt', assignments') <- canonicalizeHelper stmt (Map.insert v v assignments)
+          return (Make v t stmt', assignments')
         Send v ->
           case Map.lookup v assignments of
             Just new -> return (Send new, assignments)

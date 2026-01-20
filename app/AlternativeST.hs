@@ -10,9 +10,11 @@ alternativeSTNaming :: FuncEnv -> Context -> Int -> Statement -> IO (Statement, 
 alternativeSTNaming funcs ctxt state st =
   case st of
     Declare v t -> return (Declare v t, (Map.insert v (t, AUnknown) ctxt), state, funcs)
-    Make v chant -> do
+    Make v chant stmt -> do
       let freshId = ChannelID ("oid" ++ show state)
-       in return (Make v chant, updateOneAV v (AChan freshId) ctxt, state+1, funcs)
+          ctxt' = updateOneAV v (AChan freshId) ctxt
+      (st', ctxt'', state', funcs') <- alternativeSTNaming funcs ctxt' (state+1) stmt
+      return (Make v chant st', updateOneAV v (AChan freshId) ctxt'', state', funcs')
     Sequence s1 s2 -> do
       (s1', ctxt1, state1, f1) <- alternativeSTNaming funcs ctxt state s1 
       (s2', ctxt2, state2, f2) <- alternativeSTNaming f1 ctxt1 state1 s2 
