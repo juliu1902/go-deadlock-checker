@@ -104,8 +104,12 @@ data BinOp
 
 type Context = Map.Map VarName (VarType, AbstractVal) -- datatype for the inferContext function which evaluates all abstract values
 
-data Program =
-  Program VarDecs Statement -- Parser output datatype of parseProgram
+data Function =
+  Function VarName VarDecs Statement -- Parser output datatype of parseFunction
+
+data Functioncall =
+  Functioncall VarName [VarName]
+
 
 instance Show VarName
  where
@@ -716,15 +720,6 @@ lookupType x ctxt = fmap fst (Map.lookup x ctxt)
 -- finds AV of a variable
 lookupAV :: VarName -> Context -> AbstractVal
 lookupAV x ctxt = maybe AUnknown snd (Map.lookup x ctxt)
-
-
--- returns variable that points to a specific channelID,
--- based on how VarNames with ChannelIDs are handled,
--- it should only be one variable at max, although it returns a list!
-lookupVarNamesForChannel :: ChannelID -> Context -> [VarName]
-lookupVarNamesForChannel ch ctxt =
-  [var | (var, (_, AChan ch')) <- Map.toList ctxt, ch == ch']
-
 
 -- writes one AbstractVal-update in current ctxt
 updateOneAV :: VarName -> AbstractVal -> Context -> Context

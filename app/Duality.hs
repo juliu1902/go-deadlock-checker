@@ -1,6 +1,7 @@
 module Duality where
 import Datastructure
 import Equivalence
+import Data.List as List 
 import qualified Data.Map as Map
 
 
@@ -46,6 +47,16 @@ testDuality ctxt1 ctxt2 assumptions closeds locals st1 st2 = do -- simplificatio
             | x `elem` locals -> testDuality ctxt1 ctxt2 assumptions closeds locals s1 s2
         (s1, Sequence (End x) s2) -- MAKE-CLOSE-R
             | x `elem` locals -> testDuality ctxt1 ctxt2 assumptions closeds locals s1 s2
+        (Sequence (Go s) s1, s2) -> do -- GO
+            -- s und s1 für okInternal sollte nur die lokalen channel beinhalten
+            okInternal <- testDuality ctxt1 ctxt2 assumptions closeds [] (addSkip (internalST s locals)) (addSkip (internalST s1 locals)) 
+            if not okInternal then return False else do --  C, L, 0 |- s ^ s1
+                let shareds = filter (`notElem` locals) (List.intersect (channels s) (channels s1))
+                if not (null shareds) then return False else do --  (channels(s) \cap channels(s1)) \ M = 0
+                    -- C, L, M |- (s || s1) ^ s2
+                    r1 <- testDuality ctxt1 ctxt2 assumptions closeds locals (addSkip (externalST s locals)) s2
+                    r2 <- testDuality ctxt1 ctxt2 assumptions closeds locals (addSkip (externalST s1 locals)) s2 
+                    return (r1 || r2)
         (Sequence (Send x) s1, Sequence (Receive y) s2) -> do -- SEQUENCE-DUAL-SEND
             res <- testDuality ctxt1 ctxt2 assumptions closeds locals s1 s2
             return (x == y && res)
@@ -116,3 +127,38 @@ assumptionsUnsatDual ctxt1 ctxt2 assumptions = do
   res2 <- checkSatForEquiv conj ctxt2
   return (isUnsat res1 || isUnsat res2)
 
+-- extracts all channels of a statement
+channels :: Statement -> [VarName]
+channels st = case st of
+  Send x        -> [x]
+  Receive x    -> [x]
+  End x        -> [x]
+  Make x _ s   -> x : channels s
+  Sequence a b -> channels a ++ channels b
+  If _ a b     -> channels a ++ channels b
+  Go s         -> channels s
+  _            -> []
+
+internalST :: Statement -> [VarName] -> Statement
+internalST st locals = case st of
+    Send x -> if x `elem` locals then Send x else Skip
+    Receive x -> if x `elem` locals then Receive x else Skip 
+    End x -> if x `elem` locals then End x else Skip
+    Sequence s1 s2 -> Sequence (internalST s1 locals) (internalST s2 locals)
+    Make _ _ s -> internalST s locals 
+    If e s1 s2 -> let s1' = internalST s1 locals
+                      s2' = internalST s2 locals
+                    in if s1' == Skip && s2' == Skip then Skip else If e s1' s2'    
+    _ -> Skip
+
+externalST :: Statement -> [VarName] -> Statement 
+externalST st locals = case st of
+    Send x -> if x `notElem` locals then Send x else Skip
+    Receive x -> if x `notElem` locals then Receive x else Skip 
+    End x -> if x `notElem` locals then End x else Skip
+    Sequence s1 s2 -> Sequence (externalST s1 locals) (externalST s2 locals)
+    Make _ _ s -> externalST s locals 
+    If e s1 s2 -> let s1' = externalST s1 locals
+                      s2' = externalST s2 locals
+                    in if s1' == Skip && s2' == Skip then Skip else If e s1' s2'    
+    _ -> Skip     

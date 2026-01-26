@@ -95,8 +95,8 @@ parseVarTypes = do
           return CBool
 
 
-varDecParser :: Parser Statement
-varDecParser = do
+varDeclareParser :: Parser Statement
+varDeclareParser = do
   spaceConsumer
   _ <- string "var"
   spaceConsumer
@@ -212,7 +212,7 @@ parseSingleStatement = do
     <|> try parseSend
     <|> try parseSkip
     <|> try parseFor
-    <|> try varDecParser
+    <|> try varDeclareParser
     <|> try goParser
     <|> try funcParser
     <|> parseIf
@@ -392,20 +392,59 @@ parseSequence = do
   _ <- char '}'
   return s
 
-
 -- Sequence Parser hier indirekt verbaut
 parseStatement :: Parser Statement
 parseStatement = do
   stmts <- (try parseMake <|> parseSingleStatement) `sepEndBy1` spaceConsumer
   return $ foldr1 Sequence stmts
 
-parseProgram :: Parser Program
-parseProgram = do
-  decs <- headerParser
+parseFunction :: Parser Function
+parseFunction = do
+  spaceConsumer
+  _ <- string "func"
+  spaceConsumer
+  x <- identifier
+  spaceConsumer
+  _ <- char '('
+  decs <- parameterParser `sepBy` (spaceConsumer *> char ',' <* spaceConsumer)
+  _ <- char ')'
   spaceConsumer
   _ <- char '{'
   spaceConsumer
   stmt <- parseStatement
   spaceConsumer
   _ <- char '}'
-  return (Program decs stmt)
+  return (Function (VarName x) decs stmt)
+
+varDecParser :: Parser VarDec
+varDecParser = do
+  spaceConsumer
+  _ <- string "var"
+  spaceConsumer
+  v <- identifier
+  ty <- parseVarTypes
+  return (VarName v, ty)
+
+
+parseInput :: Parser (Function, Function, VarDecs, Functioncall, Functioncall)
+parseInput = do
+  spaceConsumer
+  a <- parseFunction
+  spaceConsumer
+  b <- parseFunction
+  spaceConsumer
+  vardecs <- varDecParser `sepEndBy1` spaceConsumer
+  spaceConsumer
+  name1 <- identifier
+  _ <- char '('
+  args1 <- parseVar `sepBy` (spaceConsumer *> char ',' <* spaceConsumer)
+  spaceConsumer
+  _ <- char ')'
+  spaceConsumer
+  name2 <- identifier
+  _ <- char '('
+  args2 <- parseVar `sepBy` (spaceConsumer *> char ',' <* spaceConsumer)
+  spaceConsumer
+  _ <- char ')'
+  spaceConsumer
+  return (a, b, vardecs, Functioncall (VarName name1) args1, Functioncall (VarName name2) args2)
