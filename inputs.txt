@@ -19,13 +19,13 @@ bar (a, b)
 
 ---
 // Paar 2: durch cond-eta -> equiv TRUE!
-func foo (c chan int){
-    if * then { c <- 1 } else { c <- 2 }
+func foo (c chan int, b bool){
+    if b then { c <- 1 } else { c <- 2 }
     c <- 3
     close c
 }
-func bar (c chan int){
-    if * then { 
+func bar (c chan int, b bool){
+    if b then { 
         c <- 1
         c <- 3 
     } else { 
@@ -36,8 +36,9 @@ func bar (c chan int){
 }
 
 var c chan int
-foo (c)
-bar (c)
+var b bool
+foo (c, b)
+bar (c, b)
 ---
 // Paar 3: Auch hier dasselbe, in anderer Konstellation -> equiv TRUE!
 func foo (c chan int, b bool){
@@ -83,19 +84,49 @@ var y int
 foo (c1, c2, c)
 bar (x, y, c1, c2, c)
 ---
+func p1 (d chan int, number int){
+    var c chan int
+    c = make (chan int)
+    func ex(x chan int, y int){
+        if y < 0 then x<-1 else <-x
+    }
+    number = 2
+    go ex(c, number)
+    c <- 1
+    d <- 2
+}
+
+func p2 (c chan int){
+    <- c
+}
+var d chan int
+var number int 
+p1 (d, number)
+p2 (d)
+---
+// Paar 6
 func bar (d chan int, number int){
     var c chan int
     c = make (chan int)
+
     func foo (x chan int, y int){
-        if y < 0 then x<-1 else <-x
-        close x
+        var z chan int
+        z = make (chan int)
+
+        func foo2 (x chan int){
+            x <- 1
+            close x
+        }
+
+        <- x
+        go foo2(z)
+        z <- 1
     }
     number = 2
     go foo(c, number)
     c <- 1
     d <- 2
 }
-
 func foo (c chan int){
     <- c
 }
@@ -105,3 +136,43 @@ var d chan int
 var number int 
 bar (d, number)
 foo (d)
+
+---
+// (s1 || s2) || s3
+func p1 (n1 chan int, n2 chan int, m chan int){
+    var c1 chan int
+    var c2 chan int
+    c1 = make (chan int)
+    c2 = make (chan int)
+    func s1 (t chan int){
+        t <- 1
+    }
+    func s2 (t chan int){
+        t <- 2
+    }
+    go s1(c1)
+    go s2(c2)
+    <- c1 
+    m <- 1
+    <- c2
+    m <- 1 
+    <- m
+    n2 <- 2 
+    <- n1
+    n2 <- 5 
+}
+func p2 (n1 chan int, n2 chan int, m chan int){
+    <- m
+    <- m
+    m <- 1
+    var x int
+    x = <- n2 
+    n1 <- 1
+    x = <- n2
+}
+
+var n1 chan int
+var n2 chan int
+var m chan int
+p1 (n1, n2, m)
+p2 (n1, n2, m)

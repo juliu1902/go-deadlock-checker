@@ -121,15 +121,15 @@ runCase i input = do
           putStrLn ("main context: " ++ show args')
           putStrLn "ST A:"
           putStrLn (prettyPrintST stA)
-          putStrLn (prettyPrintST alternativeST1)
+          --putStrLn (prettyPrintST alternativeST1)
           putStrLn "\nST B:"
           putStrLn (prettyPrintST stB)
-          putStrLn (prettyPrintST alternativeST2)
+          --putStrLn (prettyPrintST alternativeST2)
 
           putStrLn $ "\nContext A: " ++ show ctA
           putStrLn $ "Context B: " ++ show ctB
           putStrLn "\nTests:"
           resEquiv <- testEquivalence' paramContext1 paramContext2 [] (addSkip stA) (addSkip stB)
           putStrLn ("A ~ B? " ++  show resEquiv)
-          resDual <- testDuality paramContext1 paramContext2 [] [] [] (addSkip stA) (addSkip stB)
+          resDual <- testDuality paramContext1 paramContext2 [] (initialZ (initialZ Map.empty filteredArgs1 paramContext1) filteredArgs2 paramContext2) (addSkip stA) (addSkip stB)
           putStrLn ("A ^ B? " ++ show resDual)

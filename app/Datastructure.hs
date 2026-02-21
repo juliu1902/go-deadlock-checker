@@ -762,6 +762,7 @@ mergeIfContexts cond c1 c2 =
 strip' :: Statement -> Statement
 strip' (For _ _) = Skip
 strip' (Assign _ _) = Skip
+strip' (Declare _ _) = Skip
 strip' (Make v t stmt) = Make v t (strip' stmt)
 strip' (Sequence s1 s2) = Sequence (strip' s1) (strip' s2)
 strip' (If e s1 s2) =

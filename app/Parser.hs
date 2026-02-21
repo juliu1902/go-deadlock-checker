@@ -260,9 +260,9 @@ parseSend = do
   spaceConsumer
   _ <- string "<-"
   spaceConsumer
-  _ <- try expressionParser <|> try term <|> numberParser
+  _ <- term  -- Use term instead of full expressionParser to avoid over-consumption
+  spaceConsumer
   return (Send (VarName c))
-
 
 parseRec :: Parser Statement
 parseRec = do
@@ -397,6 +397,27 @@ parseStatement :: Parser Statement
 parseStatement = do
   stmts <- (try parseMake <|> parseSingleStatement) `sepEndBy1` spaceConsumer
   return $ foldr1 Sequence stmts
+
+
+parseStatement' :: Parser Statement
+parseStatement' = do
+  statements <- statementList
+  return $ case statements of
+    []  -> Skip
+    [s] -> s
+    _   -> foldr1 Sequence statements
+  where
+    statementList = do
+      spaceConsumer
+      first <- try parseMake <|> parseSingleStatement
+      rest <- many (try parseNextStatement)
+      return (first : rest)
+    parseNextStatement = do
+      spaceConsumer
+      -- Explicitly check we're not at the end
+      notFollowedBy (char '}')
+      stmt <- try parseMake <|> parseSingleStatement  
+      return stmt
 
 parseFunction :: Parser Function
 parseFunction = do
