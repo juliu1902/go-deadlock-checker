@@ -348,13 +348,10 @@ typeCheck ctxt =
             AIf e av1 av2 ->
               case checkTypeOfExpression TBool e ctxt of
                 True -> typeCheck (Map.fromList rest)
-                False ->
-                  if e /= EVar (VarName "*")
-                    then Left
+                False -> Left
                            $ "Type error: condition expression not of type Bool for variable "
                                ++ show var
                                ++ "."
-                    else typeCheck (Map.fromList rest)
             AChan id ->
               Left
                 $ "Type error: variable "
@@ -415,13 +412,10 @@ typeCheck ctxt =
             AIf e av1 av2 ->
               case checkTypeOfExpression TBool e ctxt of
                 True -> typeCheck (Map.fromList rest)
-                False ->
-                  if e /= EVar (VarName "*")
-                    then Left
+                False -> Left
                            $ "Type error: condition expression not of type Bool for variable "
                                ++ show var
                                ++ "."
-                    else typeCheck (Map.fromList rest)
             AChan id ->
               Left
                 $ "Type error: variable "
@@ -454,13 +448,10 @@ typeCheck ctxt =
             AIf e av1 av2 ->
               case checkTypeOfExpression TBool e ctxt of
                 True -> typeCheck (Map.fromList rest)
-                False ->
-                  if e /= EVar (VarName "*")
-                    then Left
+                False -> Left
                            $ "Type error: condition expression not of type Bool for variable "
                                ++ show var
                                ++ "."
-                    else typeCheck (Map.fromList rest)
         TChan CBool ->
           case aval of
             AChan id -> typeCheck (Map.fromList rest)
@@ -493,21 +484,14 @@ typeCheck ctxt =
             AIf e av1 av2 ->
               case checkTypeOfExpression TBool e ctxt of
                 True -> typeCheck (Map.fromList rest)
-                False ->
-                  if e /= EVar (VarName "*")
-                    then Left
+                False -> Left
                            $ "Type error: condition expression not of type Bool for variable "
                                ++ show var
                                ++ "."
-                    else typeCheck (Map.fromList rest)
 
 checkTypeOfExpression :: VarType -> Expr -> Context -> Bool
 checkTypeOfExpression expectedType expr ctxt =
   case expr of
-    EVar (VarName "*") ->
-      if expectedType == TBool
-        then True
-        else False
     EVar var ->
       case Map.lookup var ctxt of
         Just (vtype, _) -> vtype == expectedType
@@ -1013,11 +997,7 @@ mkEnv e ctxt = do
                          return (v, SBVInt sv)
         Just TBool -> do sv <- sBool (show v)
                          return (v, SBVBool sv)
-        Nothing ->
-          if v == VarName "*"
-            then do sv <- sBool "*"
-                    return (v, SBVBool sv)
-            else error ("variable has no type: " ++ show v)
+        Nothing -> error ("variable has no type: " ++ show v)
 
 
 -- converts SatResult of `checkSat` to a Bool and reformulate the satisfiability question to: "is x unsatisfiable?"

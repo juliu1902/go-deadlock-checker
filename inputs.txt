@@ -129,8 +129,6 @@ func bar (d chan int, number int){
 func foo (c chan int){
     <- c
 }
-
-var c chan int 
 var d chan int
 var number int 
 bar (d, number)

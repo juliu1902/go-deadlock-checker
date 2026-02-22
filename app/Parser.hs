@@ -295,21 +295,13 @@ parseEnd = do
   spaceConsumer
   End <$> parseVar
 
-parseCondPlaceHolder :: Parser Expr
-parseCondPlaceHolder = do
-  spaceConsumer
-  _ <- char '*'
-  spaceConsumer
-  return $ EVar (VarName "*")
-
-
 -- Bis jetzt nur einfache comparison expressions erlaubt
 parseIf :: Parser Statement
 parseIf = do
   spaceConsumer
   _ <- string "if"
   spaceConsumer
-  cond <- try expressionParser <|> parseCondPlaceHolder
+  cond <- expressionParser
   spaceConsumer
   _ <- string "then"
   spaceConsumer

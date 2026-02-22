@@ -304,155 +304,159 @@ externalCheckStep ctxt1 ctxt2 assumptions z leftProcs rightProcs = do
                 return False
 
 progressLeftStatement :: Context -> Context -> [Expr] -> Z -> Statement -> [Statement] -> [Statement] -> IO Bool
-progressLeftStatement ctxt1 ctxt2 assumptions z stmt leftRest rightProcs = case stmt of
-    Sequence (Send x) s' -> do
-        case Map.lookup x z of
-            Just Open -> do
-                -- DUAL-SEND-RECV
-                putStrLn $ "DUAL-SEND-RECV: " ++ show x
-                result <- tryFindMatchingReceive ctxt1 ctxt2 assumptions z x s' leftRest rightProcs
-                if result then return True
-                else return False
-            Just External -> do
-                -- EXT-SEND
-                putStrLn $ "EXTERNAL: Left external send " ++ show x
-                externalCheckStep ctxt1 ctxt2 assumptions z (s':leftRest) rightProcs
-            -- no channel action on fresh Channels allowed
-            _ -> return False
-            
-    Sequence (Receive x) s' -> do
-        case Map.lookup x z of
-            Just Open -> do
-                -- DUAL-SEND-RECV SYMMETRIC
-                putStrLn $ "DUAL-SEND-RECV SYMMETRIC: " ++ show x
-                result <- tryFindMatchingSend ctxt1 ctxt2 assumptions z x s' leftRest rightProcs
-                if result then return True
-                else return False
-            Just External -> do
-                -- EXT-RECV 
-                putStrLn $ "EXTERNAL: Left external receive " ++ show x
-                externalCheckStep ctxt1 ctxt2 assumptions z (s':leftRest) rightProcs
-            Just Closed -> do
-                -- CLOSED-RECV
-                putStrLn $ "CLOSED-RECV: Left closed receive " ++ show x
-                externalCheckStep ctxt1 ctxt2 assumptions z (s':leftRest) rightProcs
-            _ -> return False
-            
-    -- Close actions
-    Sequence (End x) s' -> do
-        case Map.lookup x z of
-            -- Double close not allowed
-            Just Closed -> return False
-            _ -> do
-                -- CLOSE
-                putStrLn $ "CLOSE: Left close " ++ show x
-                let z' = Map.insert x Closed z
+progressLeftStatement ctxt1 ctxt2 assumptions z stmt leftRest rightProcs = 
+    -- SIMPLIFICATION
+    case simplification stmt of
+        Sequence (Send x) s' -> do
+            case Map.lookup x z of
+                Just Open -> do
+                    -- DUAL-SEND-RECV
+                    putStrLn $ "DUAL-SEND-RECV: " ++ show x
+                    result <- tryFindMatchingReceive ctxt1 ctxt2 assumptions z x s' leftRest rightProcs
+                    if result then return True
+                    else return False
+                Just External -> do
+                    -- EXT-SEND
+                    putStrLn $ "EXTERNAL: Left external send " ++ show x
+                    externalCheckStep ctxt1 ctxt2 assumptions z (s':leftRest) rightProcs
+                -- no channel action on fresh Channels allowed
+                _ -> return False
+
+        Sequence (Receive x) s' -> do
+            case Map.lookup x z of
+                Just Open -> do
+                    -- DUAL-SEND-RECV SYMMETRIC
+                    putStrLn $ "DUAL-SEND-RECV SYMMETRIC: " ++ show x
+                    result <- tryFindMatchingSend ctxt1 ctxt2 assumptions z x s' leftRest rightProcs
+                    if result then return True
+                    else return False
+                Just External -> do
+                    -- EXT-RECV 
+                    putStrLn $ "EXTERNAL: Left external receive " ++ show x
+                    externalCheckStep ctxt1 ctxt2 assumptions z (s':leftRest) rightProcs
+                Just Closed -> do
+                    -- CLOSED-RECV
+                    putStrLn $ "CLOSED-RECV: Left closed receive " ++ show x
+                    externalCheckStep ctxt1 ctxt2 assumptions z (s':leftRest) rightProcs
+                _ -> return False
+
+        -- Close actions
+        Sequence (End x) s' -> do
+            case Map.lookup x z of
+                -- Double close not allowed
+                Just Closed -> return False
+                _ -> do
+                    -- CLOSE
+                    putStrLn $ "CLOSE: Left close " ++ show x
+                    let z' = Map.insert x Closed z
+                    externalCheckStep ctxt1 ctxt2 assumptions z' (s':leftRest) rightProcs
+
+        -- Make actions
+        Make x _ s' -> do
+            -- MAKE
+            if Map.notMember x z then do
+                putStrLn $ "MAKE: Left make " ++ show x
+                let z' = Map.insert x Fresh z
                 externalCheckStep ctxt1 ctxt2 assumptions z' (s':leftRest) rightProcs
-                
-    -- Make actions
-    Make x _ s' -> do
-        -- MAKE
-        if Map.notMember x z then do
-            putStrLn $ "MAKE: Left make " ++ show x
-            let z' = Map.insert x Fresh z
-            externalCheckStep ctxt1 ctxt2 assumptions z' (s':leftRest) rightProcs
-        else return False
-        
-    -- COND-SPLIT
-    Sequence (If e s1 s2) s' -> do
-        putStrLn $ "IF: Left if statement - applying Cond-Split"
-        let assumptions1 = assumptions ++ [EBinOp Eq e (EBool True)]
-        let assumptions2 = assumptions ++ [EBinOp Eq (ENot e) (EBool True)]
-        result1 <- externalCheckStep ctxt1 ctxt2 assumptions1 z (Sequence s1 s':leftRest) rightProcs
-        result2 <- externalCheckStep ctxt1 ctxt2 assumptions2 z (Sequence s2 s':leftRest) rightProcs
-        return (result1 && result2)
-        
-    -- GO 
-    Sequence (Go s0) s' -> do
-        putStrLn $ "GO: Left go statement"
-        let ch0 = channels s0
-        let ch1 = channels s'
-        let zinternal = initZinternal z ch0 ch1
-        -- Check internal duality: s0 ≍ s'
-        internalOk <- testDuality ctxt1 ctxt2 assumptions zinternal (addSkip s0) s'
-        if not internalOk then
-            return False
-        else do
-            -- Add both parallel processes to left side
-            let zexternal = initZexternal z
-            externalCheckStep ctxt1 ctxt2 assumptions zexternal (addSkip s0:s':leftRest) rightProcs
-            
-    _ -> return False
+            else return False
+
+        -- COND-SPLIT
+        Sequence (If e s1 s2) s' -> do
+            putStrLn $ "IF: Left if statement - applying Cond-Split"
+            let assumptions1 = assumptions ++ [EBinOp Eq e (EBool True)]
+            let assumptions2 = assumptions ++ [EBinOp Eq (ENot e) (EBool True)]
+            result1 <- externalCheckStep ctxt1 ctxt2 assumptions1 z (Sequence s1 s':leftRest) rightProcs
+            result2 <- externalCheckStep ctxt1 ctxt2 assumptions2 z (Sequence s2 s':leftRest) rightProcs
+            return (result1 && result2)
+
+        -- GO 
+        Sequence (Go s0) s' -> do
+            putStrLn $ "GO: Left go statement"
+            let ch0 = channels s0
+            let ch1 = channels s'
+            let zinternal = initZinternal z ch0 ch1
+            -- Check internal duality: s0 ≍ s'
+            internalOk <- testDuality ctxt1 ctxt2 assumptions zinternal (addSkip s0) s'
+            if not internalOk then
+                return False
+            else do
+                -- Add both parallel processes to left side
+                let zexternal = initZexternal z
+                externalCheckStep ctxt1 ctxt2 assumptions zexternal (addSkip s0:s':leftRest) rightProcs
+
+        _ -> return False
 
 -- SYMMETRIC cases handled here
 progressRightStatement :: Context -> Context -> [Expr] -> Z -> [Statement] -> Statement -> [Statement] -> IO Bool
-progressRightStatement ctxt1 ctxt2 assumptions z leftProcs stmt rightRest = case stmt of
-    Sequence (Receive x) s' -> do
-        case Map.lookup x z of
-            -- Just Open not needed, case already handled in progressLeftStatement
-            Just External -> do
-                -- EXT-RECV SYMMETRIC
-                putStrLn $ "EXTERNAL SYMMETRIC: Right external receive " ++ show x
-                externalCheckStep ctxt1 ctxt2 assumptions z leftProcs (s':rightRest)
-            Just Closed -> do
-                -- CLOSED-RECV SYMMETRIC
-                putStrLn $ "CLOSED-RECV SYMMETRIC: Right closed receive " ++ show x
-                externalCheckStep ctxt1 ctxt2 assumptions z leftProcs (s':rightRest)
-            _ -> return False
+progressRightStatement ctxt1 ctxt2 assumptions z leftProcs stmt rightRest = 
+    -- SIMPLIFICATION
+    case simplification stmt of
+        Sequence (Receive x) s' -> do
+            case Map.lookup x z of
+                -- Just Open not needed, case already handled in progressLeftStatement
+                Just External -> do
+                    -- EXT-RECV SYMMETRIC
+                    putStrLn $ "EXTERNAL SYMMETRIC: Right external receive " ++ show x
+                    externalCheckStep ctxt1 ctxt2 assumptions z leftProcs (s':rightRest)
+                Just Closed -> do
+                    -- CLOSED-RECV SYMMETRIC
+                    putStrLn $ "CLOSED-RECV SYMMETRIC: Right closed receive " ++ show x
+                    externalCheckStep ctxt1 ctxt2 assumptions z leftProcs (s':rightRest)
+                _ -> return False
 
-    Sequence (Send x) s' -> do
-        case Map.lookup x z of
-            Just External -> do
-                -- EXT-SEND SYMMETRIC
-                putStrLn $ "EXTERNAL SYMMETRIC: Right external send " ++ show x
-                externalCheckStep ctxt1 ctxt2 assumptions z leftProcs (s':rightRest)
-            _ -> return False
-            
-    -- CLOSE SYMMETRIC
-    Sequence (End x) s' -> do
-        case Map.lookup x z of
-            Just Closed -> return False
-            _ -> do
-                putStrLn $ "CLOSE SYMMETRIC: Right close " ++ show x
-                let z' = Map.insert x Closed z
+        Sequence (Send x) s' -> do
+            case Map.lookup x z of
+                Just External -> do
+                    -- EXT-SEND SYMMETRIC
+                    putStrLn $ "EXTERNAL SYMMETRIC: Right external send " ++ show x
+                    externalCheckStep ctxt1 ctxt2 assumptions z leftProcs (s':rightRest)
+                _ -> return False
+
+        -- CLOSE SYMMETRIC
+        Sequence (End x) s' -> do
+            case Map.lookup x z of
+                Just Closed -> return False
+                _ -> do
+                    putStrLn $ "CLOSE SYMMETRIC: Right close " ++ show x
+                    let z' = Map.insert x Closed z
+                    externalCheckStep ctxt1 ctxt2 assumptions z' leftProcs (s':rightRest)
+
+        -- MAKE SYMMETRIC
+        Make x _ s' -> do
+            if Map.notMember x z then do
+                putStrLn $ "EXTERNAL: Right make " ++ show x
+                let z' = Map.insert x Fresh z
                 externalCheckStep ctxt1 ctxt2 assumptions z' leftProcs (s':rightRest)
-                
-    -- MAKE SYMMETRIC
-    Make x _ s' -> do
-        if Map.notMember x z then do
-            putStrLn $ "EXTERNAL: Right make " ++ show x
-            let z' = Map.insert x Fresh z
-            externalCheckStep ctxt1 ctxt2 assumptions z' leftProcs (s':rightRest)
-        else return False
-        
-    -- If statements (Cond-Split symmetric)
-    Sequence (If e s1 s2) s' -> do
-        putStrLn $ "EXTERNAL: Right if statement - applying Cond-Split"
-        let assumptions1 = assumptions ++ [EBinOp Eq e (EBool True)]
-        let assumptions2 = assumptions ++ [EBinOp Eq (ENot e) (EBool True)]
-        
-        result1 <- externalCheckStep ctxt1 ctxt2 assumptions1 z leftProcs (Sequence s1 s':rightRest)  
-        result2 <- externalCheckStep ctxt1 ctxt2 assumptions2 z leftProcs (Sequence s2 s':rightRest)
-        
-        return (result1 && result2)
-        
-    -- Go statements (symmetric)
-    Sequence (Go s0) s' -> do
-        putStrLn $ "EXTERNAL: Right go statement"
-        let ch0 = channels s0
-        let ch1 = channels s'
-        let zinternal = initZinternal z ch0 ch1
-        
-        -- Check internal duality: s0 ≍ s'  
-        internalOk <- testDuality ctxt1 ctxt2 assumptions zinternal (addSkip s0) s'
-        if not internalOk then
-            return False
-        else do
-            -- Add both parallel processes to right side
-            let zexternal = initZexternal z
-            externalCheckStep ctxt1 ctxt2 assumptions zexternal leftProcs (addSkip s0:s':rightRest)
-            
-    _ -> return False
+            else return False
+
+        -- If statements (Cond-Split symmetric)
+        Sequence (If e s1 s2) s' -> do
+            putStrLn $ "EXTERNAL: Right if statement - applying Cond-Split"
+            let assumptions1 = assumptions ++ [EBinOp Eq e (EBool True)]
+            let assumptions2 = assumptions ++ [EBinOp Eq (ENot e) (EBool True)]
+
+            result1 <- externalCheckStep ctxt1 ctxt2 assumptions1 z leftProcs (Sequence s1 s':rightRest)  
+            result2 <- externalCheckStep ctxt1 ctxt2 assumptions2 z leftProcs (Sequence s2 s':rightRest)
+
+            return (result1 && result2)
+
+        -- Go statements (symmetric)
+        Sequence (Go s0) s' -> do
+            putStrLn $ "EXTERNAL: Right go statement"
+            let ch0 = channels s0
+            let ch1 = channels s'
+            let zinternal = initZinternal z ch0 ch1
+
+            -- Check internal duality: s0 ≍ s'  
+            internalOk <- testDuality ctxt1 ctxt2 assumptions zinternal (addSkip s0) s'
+            if not internalOk then
+                return False
+            else do
+                -- Add both parallel processes to right side
+                let zexternal = initZexternal z
+                externalCheckStep ctxt1 ctxt2 assumptions zexternal leftProcs (addSkip s0:s':rightRest)
+
+        _ -> return False
 
 -- Try to find matching receive for a send
 tryFindMatchingReceive :: Context -> Context -> [Expr] -> Z -> VarName -> Statement -> [Statement] -> [Statement] -> IO Bool
