@@ -115,12 +115,11 @@ func bar (d chan int, number int){
 
         func foo2 (x chan int){
             x <- 1
-            close x
         }
 
         <- x
         go foo2(z)
-        z <- 1
+        <- z
     }
     number = 2
     go foo(c, number)
