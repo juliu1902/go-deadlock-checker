@@ -231,25 +231,25 @@ expressionToSymbolicForEquiv env expr ctxt =
             (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 Data.SBV..< v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ < _ might not be of type int"
         Gt ->
           case (first, second) of
             (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 Data.SBV..> v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ > _ might not be of type int"
         Le ->
           case (first, second) of
             (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 Data.SBV..<= v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ <= _ might not be of type int"
         Ge ->
           case (first, second) of
             (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 Data.SBV..>= v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ >= _ might not be of type int"
         Eq ->
           case (first, second) of
             (SBVInt v1, SBVInt v2) -> return (SBVBool (v1 Data.SBV..== v2))
@@ -265,22 +265,22 @@ expressionToSymbolicForEquiv env expr ctxt =
             (SBVInt v1, SBVInt v2) -> return (SBVInt (v1 + v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ + _ might not be of type int"
         Sub ->
           case (first, second) of
             (SBVInt v1, SBVInt v2) -> return (SBVInt (v1 - v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ - _ might not be of type int"
         Mul ->
           case (first, second) of
             (SBVInt v1, SBVInt v2) -> return (SBVInt (v1 * v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ * _ might not be of type int"
         Mod ->
           case (first, second) of
             (SBVInt v1, SBVInt v2) -> return (SBVInt (Data.SBV.sMod v1 v2))
             _ ->
               error
-                "at least one of the expressions of _ || _ might not be of type int"
+                "at least one of the expressions of _ % _ might not be of type int"
