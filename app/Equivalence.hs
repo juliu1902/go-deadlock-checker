@@ -7,7 +7,7 @@ import           Data.SBV            (SatResult (..), Symbolic, literal,
                                       sat, (.&&), (.<), (.<=), (.==), (.>),
                                       (.>=), (.||))
 testEquivalence' :: Context -> Context -> [Expr] -> Statement -> Statement -> IO Bool
-testEquivalence' ctxt1 ctxt2 assumptions st1 st2 = do -- simplification and canonicalization
+testEquivalence' ctxt1 ctxt2 assumptions st1 st2 = do -- simplification 
   case (simplification st1, simplification st2) of
     (Skip, Skip) -> return True -- atom-skip
   -- SEQ-SEND
@@ -188,7 +188,7 @@ checkSatForEquiv expr ctxt =
 -- Is an expression always true under the given assumptions?
 entails :: Context -> [Expr] -> Expr -> IO Bool
 entails ctxt assumptions expr = do
-  -- Prüfen ob (assumptions AND NOT expr) unerfüllbar ist
+  -- check if (assumptions AND NOT expr) is unsatisfiable
   let negatedExpr = ENot expr
       allAssumptions = assumptions ++ [negatedExpr]
       conjunctiveFormula =

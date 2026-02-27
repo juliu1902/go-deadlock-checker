@@ -84,6 +84,7 @@ var y int
 foo (c1, c2, c)
 bar (x, y, c1, c2, c)
 ---
+// Paar 5, 
 func p1 (d chan int, number int){
     var c chan int
     c = make (chan int)
@@ -104,7 +105,7 @@ var number int
 p1 (d, number)
 p2 (d)
 ---
-// Paar 6
+// Paar 6 einfaches go beispiel -> dual TRUE!
 func p1 (d chan int){
     var c chan int
     c = make (chan int)

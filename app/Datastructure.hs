@@ -18,7 +18,6 @@ data Statement
   | End VarName
   | Sequence Statement Statement
   | If Expr Statement Statement
-  | For ForHeader Statement
   | Assign VarName Expr
   | Go Statement -- go {} {}
   | Declare VarName VarType
@@ -36,14 +35,9 @@ newtype VarName =
 
 newtype ChannelID =
   ChannelID String
-  deriving (Show, Eq) -- type or newtype tbd
+  deriving (Show, Eq)
 
 type FreshM = State Int -- State Int Monad for unique channelID naming
-
-data ForHeader
-  = ForHeaderRunning VarName Int Expr IncDec
-  | ForHeaderRange VarName VarName
-  deriving (Show, Eq)
 
 data IncDec
   = Inc
@@ -72,10 +66,10 @@ type VarDec = (VarName, VarType)
 type VarDecs = [VarDec]
 
 data AbstractVal
-  = AChan ChannelID -- Kanalname
-  | AIf Expr AbstractVal AbstractVal -- eine Auswahl zwischen verschiedenen Abstract Values
-  | ATerm Expr -- Ein Ausdruck
-  | AUnknown -- noch unbekannt
+  = AChan ChannelID
+  | AIf Expr AbstractVal AbstractVal
+  | ATerm Expr
+  | AUnknown
   deriving (Show, Eq)
 
 data Expr
@@ -150,15 +144,14 @@ data SBVal
 
 type SMTEnv = Map.Map VarName SBVal
 
--- key: functions name, value: params(variable, vartype), statement
 type FuncEnv = Map.Map VarName (VarDecs, Statement)
 
--- evaluates conditions and considers the context when there is a send/receive
+-- generates actual session type out of given Statement
 stmtToST :: FuncEnv -> Context -> Int -> Statement -> IO (Either String (FuncEnv, Statement, Context, Int))
 stmtToST funcs ctxt state st =
   case st of
     Declare v t -> do
-      case typeCheck (Map.insert v (t, AUnknown) ctxt) of -- logic could added here to prevent redeclaring a variable that has already been declared
+      case typeCheck (Map.insert v (t, AUnknown) ctxt) of
         Right _ -> return $ Right (funcs, Declare v t, (Map.insert v (t, AUnknown) ctxt), state)
         Left err -> return $ Left err
     Make v chant stmt -> do
@@ -185,7 +178,7 @@ stmtToST funcs ctxt state st =
           res2 <- stmtToST funcs ctxt state s2
           case res2 of
             Right (f2, s2', ctxt2, state2) ->
-              let e' = evalExpr e ctxt -- auch hier evalExpr, damit Variablen aus der Bedingung ihren aktuellen Wert aus dem AV im Context bekommen
+              let e' = evalExpr e ctxt
                   ctxtMerged = mergeIfContexts e' ctxt1 ctxt2
                in case checkTypeOfExpression TBool e' ctxt of
                     True -> do
@@ -194,8 +187,7 @@ stmtToST funcs ctxt state st =
                         then return (Right (f1, s1', ctxt1, state1))
                         else if resolved == s2
                                then return (Right (f2, s2', ctxt2, state2))
-                               -- TODO if the branches of an if define a function that are called the same, the function in the else will be ignored!
-                               else if state1 > state2 then return (Right (Map.union f1 f2, If e' s1' s2', ctxtMerged, state1)) else return (Right (Map.union f1 f2, If e' s1' s2', ctxtMerged, state2)) 
+                               else if state1 > state2 then return (Right (Map.union f1 f2, If e' s1' s2', ctxtMerged, state1)) else return (Right (Map.union f1 f2, If e' s1' s2', ctxtMerged, state2))
                     False ->
                       return
                         (Left
@@ -211,7 +203,7 @@ stmtToST funcs ctxt state st =
           withTypeUpdate var (AIf e av1 av2) funcs (Assign var (EVar x)) ctxt state
         AChan chanID ->
           withTypeUpdate var (AChan chanID) funcs (Assign var (EVar x))  ctxt state
-        _ -> -- var bekommt einfach ATerm x
+        _ -> -- var just gets ATerm x
           withTypeUpdate var (ATerm (EVar x)) funcs (Assign var (EVar x)) ctxt state
     Assign var (EBinOp op e1 e2) -> do
       let e1' = evalExpr e1 ctxt
@@ -231,10 +223,10 @@ stmtToST funcs ctxt state st =
         Skip -> return (Left "Cannot send on non-existing channel")
         _ -> return (Right (funcs, setInContext "send" ctxt v, ctxt, state))
     Receive v -> do
-      case (setInContext "recv" ctxt v) of 
+      case (setInContext "recv" ctxt v) of
         Skip -> return (Left "Cannot Receive on non-existing channel")
         _ -> return (Right (funcs, setInContext "recv" ctxt v, ctxt, state))
-    End v -> 
+    End v ->
       case (setInContext "end" ctxt v) of
         Skip -> return (Left "Cannot close non-existing channel")
         _ -> return (Right (funcs, setInContext "end" ctxt v, ctxt, state))
@@ -247,7 +239,7 @@ stmtToST funcs ctxt state st =
       case Map.lookup name funcs of
         Nothing -> return (Left ("Unknown function in go call: " ++ show name))
         Just (params, stmt) -> do
-          let projections = [(p, a) | ((p, _), a) <- zip params args]              
+          let projections = [(p, a) | ((p, _), a) <- zip params args]
               substituted = replaceAll projections stmt
           res <- stmtToST funcs ctxt state substituted
           case res of
@@ -265,26 +257,11 @@ stmtToST funcs ctxt state st =
             Left err -> return (Left err)
             Right (_, funcST, _, state') ->
               return (Right (funcs, funcST, ctxt, state'))
-    For hdr s -> do
-      res <- stmtToST funcs ctxt state s
-      case res of
-        Right (f, s', ctxt', state') -> return (Right (f, For hdr s', ctxt', state'))
-        Left err          -> return (Left err)
     _ -> return (Right (funcs, st, ctxt, state))
---type VarDec = (VarName, VarType)
--- key: functions name, value: params(variable, vartype), statement
--- type FuncEnv = Map.Map VarName (VarDecs, Statement)
+
 replaceAll :: [(VarName, VarName)] -> Statement -> Statement
 replaceAll ((old, new):xs) stmt = replaceAll xs (replace (old,new) stmt)
 replaceAll [] stmt = stmt
-
-addSkip :: Statement -> Statement
-addSkip stmt = case stmt of
-  Sequence _ Skip -> stmt  -- bereits Skip am Ende, nichts zu tun
-  Sequence s1 s2 -> Sequence s1 (addSkip s2)
-  Make x v st -> Make x v (addSkip st) 
-  Skip -> stmt  -- schon Skip, nichts hinzufügen
-  x -> Sequence x Skip
 
 replace :: (VarName, VarName) -> Statement -> Statement
 replace mapping@(old, new) stmt = case stmt of
@@ -294,7 +271,6 @@ replace mapping@(old, new) stmt = case stmt of
   Receive v -> if v==old then Receive new else Receive v
   End v -> if v==old then End new else End v
   If e s1 s2 -> If (replaceExpression mapping e) (replace mapping s1) (replace mapping s2)
-  For h st -> For h (replace mapping st) --later: h must be checked too!
   Assign var expr -> if var==old then Assign new (replaceExpression mapping expr) else Assign old (replaceExpression mapping expr)
   Make var t st -> if var==old then Make new t (replace mapping st) else Make var t (replace mapping st)
   Go st -> Go $ replace mapping st
@@ -307,6 +283,13 @@ replaceExpression (old, new) e = case e of
   ENot expr -> ENot (replaceExpression (old, new) expr)
   x -> x
 
+addSkip :: Statement -> Statement
+addSkip stmt = case stmt of
+  Sequence _ Skip -> stmt
+  Sequence s1 s2 -> Sequence s1 (addSkip s2)
+  Make x v st -> Make x v (addSkip st)
+  Skip -> stmt
+  x -> Sequence x Skip
 
 withTypeUpdate :: VarName -> AbstractVal -> FuncEnv -> Statement -> Context -> Int -> IO (Either String (FuncEnv, Statement, Context, Int))
 withTypeUpdate var av funcs stOut ctxt state =
@@ -620,39 +603,20 @@ prettyPrintST x =
         -- assignments werden nicht mit ; getrennt sondern ignoriert
     If _ (Assign _ _) (Assign _ _) -> "" -- ifs mit nur assigns werden ignoriert
     If e s Skip ->
-      case onlyAssigns s of
-        True -> ""
-        _    -> block s ++ " if " ++ show e ++ " else " ++ "skip"
+      (if onlyAssigns s then "" else "if " ++ show e ++ " " ++ block s ++ "{skip}")
     If e Skip s ->
-      case onlyAssigns s of
-        True -> ""
-        _    -> "skip" ++ " if " ++ show e ++ " else " ++ block s
+      (if onlyAssigns s then "" else "if " ++ show e ++ " {skip}" ++ block s)
     If e s1 s2
       | onlyAssigns s1 && onlyAssigns s2 -> ""
       | onlyAssigns s1 && not (onlyAssigns s2) ->
-        "skip if " ++ show e ++ " else " ++ block s2
+        "if " ++ show e ++ " {skip}" ++ block s2
       | not (onlyAssigns s1) && onlyAssigns s2 ->
-        block s1 ++ " if " ++ show e ++ " else skip"
-      | otherwise -> block s1 ++ " if " ++ show e ++ " else " ++ block s2
+        "if " ++ show e ++ " " ++ block s1 ++ "{skip}"
+      | otherwise -> "if " ++ show e ++ " " ++ block s1 ++ block s2
     Go s1 ->
       "go" ++ "(" ++ prettyPrintST s1 ++ ")"
     Assign _ _ -> ""
     Declare _ _ -> ""
-    For (ForHeaderRunning var start e incdec) s ->
-      "for "
-        ++ "("
-        ++ show var
-        ++ "="
-        ++ show start
-        ++ ";"
-        ++ show e
-        ++ ";"
-        ++ show var
-        ++ show incdec
-        ++ ") "
-        ++ block s
-    For (ForHeaderRange var chan) s ->
-      "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
     Func name vars p -> "func " ++ show name ++ " " ++ show vars ++ "{" ++ prettyPrintST p ++ "}"
     GoCall _ _ -> ""
     FuncCall _ _ -> ""
@@ -660,7 +624,7 @@ prettyPrintST x =
     block :: Statement -> String
     block st@(Sequence _ _) = "{" ++ prettyPrintST st ++ "}"
     block st@(If _ _ _)     = "{" ++ prettyPrintST st ++ "}"
-    block st                = prettyPrintST st
+    block st                = "{" ++ prettyPrintST st ++ "}"
 
 onlyAssigns :: Statement -> Bool
 onlyAssigns (Sequence s1 s2) = (onlyAssigns s1) && (onlyAssigns s2)
@@ -679,22 +643,6 @@ freshChannel = do
 initialContext :: VarDecs -> Context
 initialContext decs =
   freshInitialContext (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs])
-
--- in the beginning all the Abstract Values are unknown
---initialContext :: Statement -> VarDecs -> Context
---initialContext stmt decs =
---  freshInitialContext
---    $ (Map.union
---         (extractContextFromStatement stmt Map.empty)
---         (Map.fromList [((x), (y, AUnknown)) | (x, y) <- decs]))
---
---extractContextFromStatement :: Statement -> Context -> Context
---extractContextFromStatement (Sequence s1 s2) ctxt =
---  extractContextFromStatement
---    s2
---    (Map.union (extractContextFromStatement s1 ctxt) ctxt)
---extractContextFromStatement _ ctxt = ctxt
-
 
 -- var chan int/bool should automatically create fresh channels with unique channelID
 freshInitialContext :: Context -> Context
@@ -757,7 +705,6 @@ mergeIfContexts cond c1 c2 =
             abstractEq _ _                   = False
 
 strip' :: Statement -> Statement
-strip' (For _ _) = Skip
 strip' (Assign _ _) = Skip
 strip' (Declare _ _) = Skip
 strip' (Make v t stmt) = Make v t (strip' stmt)
@@ -793,15 +740,15 @@ applyFirstLevel stmt =
     If e s1 s2 -> condEta (If e (applyFirstLevel s1) (applyFirstLevel s2))
     _ -> stmt
 
-simplification :: Statement -> Statement 
+simplification :: Statement -> Statement
 simplification stmt = repeatApplication applyAllRules (strip' stmt)
   where
-    repeatApplication :: (Statement -> Statement) -> Statement -> Statement 
+    repeatApplication :: (Statement -> Statement) -> Statement -> Statement
     repeatApplication f s =
       if f s == s
         then s
         else repeatApplication f (f s)
-    applyAllRules :: Statement -> Statement 
+    applyAllRules :: Statement -> Statement
     applyAllRules s = case s of
       Sequence s1 s2 -> assocIdRule (Sequence (applyAllRules s1) (applyAllRules s2))
       If e s1 s2 -> condEta (If e (applyFirstLevel s1) (applyFirstLevel s2))
@@ -813,53 +760,6 @@ freshName = do
   n <- get
   put (n + 1)
   return $ VarName ("a" ++ show n)
-
--- takes a normalized ST and renames all varnames for channels in the same way to
--- test if two STs are the same despite their different channel names
--- Map VarName VarName = alle neuen Zuweisungen von alt zu neu
-canonicalizeChannelNames :: Statement -> Map.Map VarName VarName -> Statement
-canonicalizeChannelNames stmt list =
-  fst (evalState (canonicalizeHelper stmt list) 0)
-  where
-    canonicalizeHelper ::
-         Statement
-      -> Map.Map VarName VarName
-      -> FreshM (Statement, Map.Map VarName VarName)
-    canonicalizeHelper stmt assignments =
-      case stmt of
-        Make v t stmt -> do
-          (stmt', assignments') <- canonicalizeHelper stmt (Map.insert v v assignments)
-          return (Make v t stmt', assignments')
-        Send v ->
-          case Map.lookup v assignments of
-            Just new -> return (Send new, assignments)
-            Nothing -> do
-              new <- freshName
-              let assignments' = Map.insert v new assignments
-              return (Send new, assignments')
-        Receive v ->
-          case Map.lookup v assignments of
-            Just new -> return (Receive new, assignments)
-            Nothing -> do
-              new <- freshName
-              let assignments' = Map.insert v new assignments
-              return (Receive new, assignments')
-        End v ->
-          case Map.lookup v assignments of
-            Just new -> return (End new, assignments)
-            Nothing -> do
-              new <- freshName
-              let assignments' = Map.insert v new assignments
-              return (End new, assignments')
-        If expr stmt1 stmt2 -> do
-          (stmt1', assignments1) <- canonicalizeHelper stmt1 assignments
-          (stmt2', assignments2) <- canonicalizeHelper stmt2 assignments1
-          return (If expr stmt1' stmt2', assignments2)
-        Sequence stmt1 stmt2 -> do
-          (stmt1', assignments1) <- canonicalizeHelper stmt1 assignments
-          (stmt2', assignments2) <- canonicalizeHelper stmt2 assignments1
-          return (Sequence stmt1' stmt2', assignments2)
-        x -> return (x, assignments)
 
 hasVars :: Expr -> Bool
 hasVars (EVar _)         = True
@@ -876,40 +776,10 @@ expressionToSymbolic env expr ctxt =
       case lookupAV x ctxt of
         ATerm e | not (hasVars e) -> -- und diese Variable verweist NICHT auf andere Variablen
           expressionToSymbolic env e ctxt -- dann wird x ersetzt durch das, wofür x steht, also e
-        --AIf cond (ATerm e1) (ATerm e2) -> do
-        --  SBVBool c' <- expressionToSymbolic env cond ctxt
-        --  v1 <- expressionToSymbolic env e1 ctxt
-        --  v2 <- expressionToSymbolic env e2 ctxt
-        --  case (v1, v2) of
-        --    (SBVInt  x, SBVInt  y) -> pure (SBVInt  (ite c' x y))
-        --    (SBVBool x, SBVBool y) -> pure (SBVBool (ite c' x y))
-        --    _ -> error "AIf branches have different types"
-        --    _ ->
-        --      case Map.lookup x env of
-        --        Just v  -> return v
-        --        Nothing -> error ("SMTEnv missing var: " ++ show x)
         _ -> do
-          case Map.lookup x env of 
-            Just v -> return v 
+          case Map.lookup x env of
+            Just v -> return v
             Nothing -> error ("SMTEnv missing var: " ++ show x)
---    EVar x -- expression ist eine Variable
---     ->
---      case lookupAV x ctxt of
---        ATerm e
---          | not (hasVars e) -- und diese Variable verweist NICHT auf andere Variablen
---           -> expressionToSymbolic e ctxt -- Dann wird einfach x ersetzt durch das, wofür x steht, also e
---        -- AIf e s1 s2 fehlt!!! TODO
---        _ -- und wenn diese Variable x doch auf min. eine andere variable verweist,
---         ->
---          case lookupType x ctxt of
---            -- dann wird einfach eine Symbolic Variable x erstellt, die entweder SInt oder SBool ist
---            Just TInt -> SBVInt <$> sInteger (show x)
---            Just TBool -> SBVBool <$> sBool (show x)
---            -- falls für x gar kein eintrag im kontext ist,
---            Nothing ->
---              if x == VarName "*"
---                then SBVBool <$> sBool "*"
---                else error "variable has no type" -- oder wir können keinen type für x finden
     ENot e -> do
       val <- expressionToSymbolic env e ctxt
       case val of
@@ -1035,7 +905,7 @@ checkIfBranches cond ctxt = do
   satCond <- checkSat cond ctxt
   satNeg <- checkSat (ENot cond) ctxt
   let unsatCond = isUnsat satCond -- ist e aus 'if e...' unerfüllbar? Wenn ja dann else branch
-      unsatNeg = isUnsat satNeg -- ist ~e unerfüllbar? Wenn ja dann then branch
+      unsatNeg = isUnsat satNeg -- ist \neg e unerfüllbar? Wenn ja dann then branch
   case (unsatCond, unsatNeg) of
     (True, False)  -> return "else branch"
     (False, True)  -> return "then branch"

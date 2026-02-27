@@ -11,7 +11,7 @@ import qualified Data.Map            as Map
 type Parser = Parsec Void String
 
 
--- whitespaces werden "geschluckt"
+-- whitespaces are consumed
 spaceConsumer :: Parser ()
 spaceConsumer = do
   let spaceOrCommentOrIgnore =
@@ -20,7 +20,6 @@ spaceConsumer = do
   return ()
 
 
--- hilfsparser, der ein symbol parst und die whitespaces davor und danach wegschmeißt
 singleSymbol :: String -> Parser String
 singleSymbol s = do
   spaceConsumer
@@ -29,7 +28,6 @@ singleSymbol s = do
   return sym
 
 
--- Unterstriche in Go überall erlaubt bei identifieren, auch am Anfang
 identifier :: Parser String
 identifier = do
   a <- lowerChar <|> char '_'
@@ -38,12 +36,11 @@ identifier = do
   return (a : b)
 
 
--- ein identifier könnte entweder eine variable oder ein channel sein
 parseVar :: Parser VarName
 parseVar = VarName <$> identifier
 
 
--- Ausdrücke wie i = 0 oder c = c1
+-- Assignments like i = 0 or c = c1
 parseAssign :: Parser Statement
 parseAssign = do
   i <- parseVar
@@ -55,12 +52,13 @@ parseAssign = do
   return $ Assign i expr
 
 
--- Hilfsparser der jede mögliche Zahl als String parst
+-- any number parsed as string
 numberParser :: Parser Expr
 numberParser = try parseFloat <|> parseInt
   where
     parseInt   = EInt <$> Lex.lexeme spaceConsumer Lex.decimal
     parseFloat = EFloat <$> Lex.lexeme spaceConsumer Lex.float
+
 
 boolParser :: Parser Expr
 boolParser = do
@@ -68,6 +66,7 @@ boolParser = do
   b <- try (string "true" >> return True) <|> (string "false" >> return False)
   spaceConsumer
   return $ EBool b
+
 
 parseVarTypes :: Parser VarType
 parseVarTypes = do
@@ -104,12 +103,14 @@ varDeclareParser = do
   ty <- parseVarTypes
   return $ Declare (VarName v) ty
 
+
 parameterParser :: Parser VarDec
 parameterParser = do
   spaceConsumer
   v <- identifier
   ty <- parseVarTypes
   return (VarName v, ty)
+
 
 headerParser :: Parser VarDecs
 headerParser = do
@@ -123,6 +124,7 @@ headerParser = do
   spaceConsumer
   _ <- char ')'
   return decs
+
 
 funcParser :: Parser Statement
 funcParser = do
@@ -141,6 +143,7 @@ funcParser = do
   _ <- char '}'
   return (Func (VarName name) decs stmt)
 
+
 goParser :: Parser Statement
 goParser = do
   spaceConsumer
@@ -154,6 +157,7 @@ goParser = do
   _ <- char ')'
   return (GoCall (VarName name) args)
 
+
 funcCallParser :: Parser Statement
 funcCallParser = do
   spaceConsumer
@@ -165,7 +169,8 @@ funcCallParser = do
   _ <- char ')'
   return (FuncCall (VarName name) args)
 
--- ( ... )-Ausdrücke
+
+-- ( ... ) - expressions
 parensExpr :: Parser Expr
 parensExpr = do
   spaceConsumer
@@ -177,13 +182,13 @@ parensExpr = do
   spaceConsumer
   pure e
 
--- "Term": Werte, Variablen oder geklammert
+
 term :: Parser Expr
 term =
   try boolParser <|> try numberParser <|> EVar <$> try parseVar <|> parensExpr
 
 
--- Operator table für die makeExprParser funktion
+-- Operator table for makeExprParser function
 table :: [[Operator Parser Expr]]
 table =
   [ [ Prefix (singleSymbol "!" >> return ENot )
@@ -212,6 +217,7 @@ table =
 expressionParser :: Parser Expr
 expressionParser = makeExprParser term table
 
+
 parseSingleStatement :: Parser Statement
 parseSingleStatement = do
   try parseAssign
@@ -219,12 +225,12 @@ parseSingleStatement = do
     <|> try parseRec
     <|> try parseSend
     <|> try parseSkip
-    <|> try parseFor
     <|> try varDeclareParser
     <|> try funcCallParser
     <|> try goParser
     <|> try funcParser
     <|> parseIf
+
 
 parseMake :: Parser Statement
 parseMake = do
@@ -247,13 +253,6 @@ parseMake = do
   return $ Make (VarName c) chanType stmt
 
 
---parseMakeBlock :: Parser Statement
---parseMakeBlock = do
---  c <- parseMakeChanName -- c ::= make(chan int|bool)
---  spaceConsumer
---  s <- parseStatement
---  return (New (VarName c) s)
-
 parseSkip :: Parser Statement
 parseSkip = do
   spaceConsumer
@@ -261,7 +260,7 @@ parseSkip = do
   return Skip
 
 
--- akzeptiert jede beliebige Zahl, gültige Variablennamen und einfache Operationen wie 2*x
+-- accepts any number, valid variablename and terms
 parseSend :: Parser Statement
 parseSend = do
   spaceConsumer
@@ -269,15 +268,17 @@ parseSend = do
   spaceConsumer
   _ <- string "<-"
   spaceConsumer
-  _ <- term  -- Use term instead of full expressionParser to avoid over-consumption
+  _ <- term  -- Use term instead of full expressionParser because expressionParser had problems with overconsumption
   spaceConsumer
   return (Send (VarName c))
+
 
 parseRec :: Parser Statement
 parseRec = do
   try recAndThrowParser <|> recParser
 
--- <- c auch erlaubt, schmeißt den wert der in c steckt weg
+
+-- <- c  also allowed, throws value in c away
 recAndThrowParser :: Parser Statement
 recAndThrowParser = do
   spaceConsumer
@@ -285,7 +286,7 @@ recAndThrowParser = do
   spaceConsumer
   Receive <$> parseVar
 
--- sowohl x = <- c als auch x := <- c erlaubt
+
 recParser :: Parser Statement
 recParser = do 
   spaceConsumer
@@ -297,6 +298,7 @@ recParser = do
   spaceConsumer
   Receive <$> parseVar
 
+
 parseEnd :: Parser Statement
 parseEnd = do
   spaceConsumer
@@ -307,7 +309,7 @@ parseEnd = do
   _ <- char ')'
   return $ End (VarName x)
 
--- Bis jetzt nur einfache comparison expressions erlaubt
+
 parseIf :: Parser Statement
 parseIf = do
   spaceConsumer
@@ -323,54 +325,6 @@ parseIf = do
   spaceConsumer
   b <- try parseSequence <|> parseSingleStatement
   return (If cond a b)
-
-
--- For ForHeader Statement
-parseFor :: Parser Statement
-parseFor = do
-  spaceConsumer
-  head <- parseForHeader
-  spaceConsumer
-  s <- parseSequence
-  return (For head s)
-
-parseForHeader :: Parser ForHeader
-parseForHeader = do
-  spaceConsumer
-  _ <- string "for"
-  spaceConsumer
-  _ <- char '('
-  spaceConsumer
-  x <- identifier
-  spaceConsumer
-  try (parseRunning x) <|> parseRange x
-  where
-    parseRunning :: String -> Parser ForHeader
-    parseRunning x = do
-      _ <- char '='
-      spaceConsumer
-      start <- Lex.lexeme spaceConsumer Lex.decimal
-      spaceConsumer
-      _ <- char ';'
-      spaceConsumer
-      e <- expressionParser
-      spaceConsumer
-      _ <- char ';'
-      spaceConsumer
-      incdec <- parseIncDec
-      spaceConsumer
-      _ <- char ')'
-      return $ ForHeaderRunning (VarName x) start e incdec
-    parseRange :: String -> Parser ForHeader
-    parseRange x = do
-      _ <- string ":="
-      spaceConsumer
-      __ <- string "range"
-      spaceConsumer
-      chan <- identifier
-      spaceConsumer
-      _ <- char ')'
-      return $ ForHeaderRange (VarName x) (VarName chan)
 
 parseIncDec :: Parser IncDec
 parseIncDec = do
@@ -396,7 +350,8 @@ parseSequence = do
   _ <- char '}'
   return s
 
--- Sequence Parser hier indirekt verbaut
+
+-- Sequence Parser is indirectly built in here
 parseStatement :: Parser Statement
 parseStatement = do
   stmts <- (try parseMake <|> parseSingleStatement) `sepEndBy1` spaceConsumer
@@ -423,6 +378,7 @@ parseStatement' = do
       stmt <- try parseMake <|> parseSingleStatement  
       return stmt
 
+
 parseFunction :: Parser Function
 parseFunction = do
   spaceConsumer
@@ -440,6 +396,7 @@ parseFunction = do
   spaceConsumer
   _ <- char '}'
   return (Function (VarName x) decs stmt)
+
 
 varDecParser :: Parser VarDec
 varDecParser = do

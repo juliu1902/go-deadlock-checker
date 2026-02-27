@@ -12,7 +12,6 @@ type Z = Map.Map VarName State
 -- DUAL-SEND-RECV and EXT-SEND can both be right at the same time!!! TODO
 testDuality :: Context -> Context -> [Expr] -> Z -> Statement -> Statement -> IO Bool
 testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
-    -- Debug: Zeige ursprüngliche Eingabe-Statements
     putStrLn "========== testDuality' CALL =========="
     
     unsatc <- assumptionsUnsatDual ctxt1 ctxt2 assumptions -- BRANCH-CUT-OFF
@@ -23,7 +22,6 @@ testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
         let st1 = simplification stmt1
         let st2 = simplification stmt2
         
-        -- Debug: Zeige vereinfachte Statements
         putStrLn $ "st1: " ++ show st1
         putStrLn $ "st2: " ++ show st2
         putStrLn $ "Z state: " ++ show z
@@ -38,7 +36,7 @@ testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
                 case Map.lookup x z of 
                     Just Open -> 
                         case Map.lookup y z of
-                                Just Open -> do -- nur, wenn der Kanal offen ist, darf DUAL-SEND-RECV angewendet werden
+                                Just Open -> do -- only if channel is open DUAL-SEND-RECV can be applied
                                     putStrLn "RULE: DUAL-SEND-RECV"
                                     res <- testDuality ctxt1 ctxt2 assumptions z s1 s2
                                     return (x == y && res)
@@ -49,7 +47,7 @@ testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
                     Just External -> do
                         putStrLn "RULE: EXT-SEND"
                         testDuality ctxt1 ctxt2 assumptions z s1 (Sequence (Receive y) s2)
-                    _ -> return False -- auf frischen Kanälen darf keine Kanalaktion ausgeführt werden
+                    _ -> return False -- no channel actions on fresh channels!
 
             (Sequence (Receive x) s1, Sequence (Send y) s2) -> do -- DUAL-SEND-RECV SYMMETRIC
                 putStrLn $ "RULE: Check for DUAL-SEND-RECV SYMMETRIC"
@@ -69,7 +67,7 @@ testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
                         testDuality ctxt1 ctxt2 assumptions z s1 (Sequence (Send y) s2)
                     _ -> return False
 
-            -- Wenn beide Send oder beide Receive, checke ob bei einem der beiden EXT-RECV/SEND angewendet werden kann
+            -- when both send or both recv, check for EXTERNAL channels
             (Sequence (Send x) s1, Sequence (Send y) s2) -> do
                 putStrLn $ "RULE: Both sides Send - checking " ++ show x ++ " and " ++ show y ++ " for external"
                 let xExternal = Map.lookup x z == Just External
@@ -96,7 +94,7 @@ testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
                         testDuality ctxt1 ctxt2 assumptions z (Sequence (Receive x) s1) s2
                     (False, False) -> checkOtherRules (Sequence (Receive x) s1) (Sequence (Receive y) s2)
 
-            -- Links weder Send noch Recv, rechts aber ein Send oder Recv -> checken ob EXT-rule angewendet werden kann
+            -- Left sth other than send or recv, but right has send or recv -> check for external channels first
             (s1, Sequence (Send x) s2) -> do
                 putStrLn $ "RULE: Checking right Send " ++ show x ++ " for external"
                 case Map.lookup x z of
@@ -116,7 +114,7 @@ testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
                         testDuality ctxt1 ctxt2 assumptions z s1 s2 
                     _ -> checkOtherRules s1 (Sequence (Receive x) s2)
 
-            -- Rechts weder Send noch Recv, links aber ein Send oder Recv -> checken ob EXT-rule angewendet werden kann  
+            -- Right sth other than send or recv, but left has send or recv -> check for external channels first
             (Sequence (Send x) s1, s2) -> do
                 putStrLn $ "RULE: Checking left Send " ++ show x ++ " for external"
                 case Map.lookup x z of
@@ -136,7 +134,7 @@ testDuality ctxt1 ctxt2 assumptions z stmt1 stmt2 = do
                         testDuality ctxt1 ctxt2 assumptions z s1 s2 
                     _ -> checkOtherRules (Sequence (Receive x) s1) s2
 
-            -- alle anderen Regeln in checkOtherRules
+            -- alle other rules are checked in checkOtherRules
             _ -> checkOtherRules st1 st2   
   where
     checkOtherRules st1 st2 = case (st1, st2) of
