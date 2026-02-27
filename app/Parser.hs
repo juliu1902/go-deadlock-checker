@@ -154,8 +154,16 @@ goParser = do
   _ <- char ')'
   return (GoCall (VarName name) args)
 
-
-
+funcCallParser :: Parser Statement
+funcCallParser = do
+  spaceConsumer
+  name <- identifier
+  spaceConsumer
+  _ <- char '('
+  spaceConsumer
+  args <- parseVar `sepBy` (spaceConsumer *> char ',' <* spaceConsumer)
+  _ <- char ')'
+  return (FuncCall (VarName name) args)
 
 -- ( ... )-Ausdrücke
 parensExpr :: Parser Expr
@@ -213,6 +221,7 @@ parseSingleStatement = do
     <|> try parseSkip
     <|> try parseFor
     <|> try varDeclareParser
+    <|> try funcCallParser
     <|> try goParser
     <|> try funcParser
     <|> parseIf
@@ -293,7 +302,10 @@ parseEnd = do
   spaceConsumer
   _ <- string "close"
   spaceConsumer
-  End <$> parseVar
+  _ <- char '('
+  x <- identifier
+  _ <- char ')'
+  return $ End (VarName x)
 
 -- Bis jetzt nur einfache comparison expressions erlaubt
 parseIf :: Parser Statement

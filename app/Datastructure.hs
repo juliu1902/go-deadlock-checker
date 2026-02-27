@@ -24,6 +24,7 @@ data Statement
   | Declare VarName VarType
   | Make VarName ChanType Statement
   | Func  VarName VarDecs Statement -- func foo(...)
+  | FuncCall VarName [VarName] -- foo(...)
   | GoCall VarName [VarName] -- go foo(...)
   deriving (Show, Eq)
 
@@ -253,6 +254,17 @@ stmtToST funcs ctxt state st =
             Left err -> return (Left err)
             Right (_, goroutineST, _, state') ->
               return (Right (funcs, Go goroutineST, ctxt, state'))
+    FuncCall name args -> do
+      case Map.lookup name funcs of
+        Nothing -> return (Left ("Unknown function in go call: " ++ show name))
+        Just (params, stmt) -> do
+          let projections = [(p, a) | ((p, _), a) <- zip params args]
+              substituted = replaceAll projections stmt
+          res <- stmtToST funcs ctxt state substituted
+          case res of
+            Left err -> return (Left err)
+            Right (_, funcST, _, state') ->
+              return (Right (funcs, funcST, ctxt, state'))
     For hdr s -> do
       res <- stmtToST funcs ctxt state s
       case res of
@@ -643,6 +655,7 @@ prettyPrintST x =
       "for " ++ "(" ++ show var ++ " := range " ++ show chan ++ " " ++ show Skip
     Func name vars p -> "func " ++ show name ++ " " ++ show vars ++ "{" ++ prettyPrintST p ++ "}"
     GoCall _ _ -> ""
+    FuncCall _ _ -> ""
   where
     block :: Statement -> String
     block st@(Sequence _ _) = "{" ++ prettyPrintST st ++ "}"

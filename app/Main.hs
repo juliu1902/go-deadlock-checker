@@ -111,7 +111,7 @@ runCase i input = do
         (Left e, _) -> die $ "Fehler in Block " ++ show i ++ "A:\n" ++ e
         (_, Left e) -> die $ "Fehler in Block " ++ show i ++ "B:\n" ++ e
         (Right (_, stA, ctA, _), Right (_, stB, ctB, _)) -> do
-          putStrLn $ "========== Paar " ++ show i ++ " =========="
+          putStrLn $ "========== Paar " ++ show i ++ " ========== \n\n\n\n\n"
           case checkClosed stA of
             Left err -> putStrLn $ "Fehler in Block " ++ show i ++ "A: " ++ err
             Right () -> return ()

@@ -431,7 +431,7 @@ progressRightStatement ctxt1 ctxt2 assumptions z leftProcs stmt rightRest =
 
         -- If statements (Cond-Split symmetric)
         Sequence (If e s1 s2) s' -> do
-            putStrLn $ "EXTERNAL: Right if statement - applying Cond-Split"
+            putStrLn "EXTERNAL: Right if statement - applying Cond-Split"
             let assumptions1 = assumptions ++ [EBinOp Eq e (EBool True)]
             let assumptions2 = assumptions ++ [EBinOp Eq (ENot e) (EBool True)]
 
@@ -442,7 +442,7 @@ progressRightStatement ctxt1 ctxt2 assumptions z leftProcs stmt rightRest =
 
         -- Go statements (symmetric)
         Sequence (Go s0) s' -> do
-            putStrLn $ "EXTERNAL: Right go statement"
+            putStrLn "EXTERNAL: Right go statement"
             let ch0 = channels s0
             let ch1 = channels s'
             let zinternal = initZinternal z ch0 ch1

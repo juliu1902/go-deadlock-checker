@@ -20,6 +20,7 @@ substituteVars subMap stmt = case stmt of
   Make var ctype s -> Make (substituteVar subMap var) ctype (substituteVars subMap s)
   Func var vdecs s -> Func (substituteVar subMap var) vdecs (substituteVars subMap s)
   GoCall var vars -> GoCall (substituteVar subMap var) (map (substituteVar subMap) vars)
+  FuncCall var vars -> FuncCall (substituteVar subMap var) (map (substituteVar subMap) vars)
 
 -- Helper function to substitute a single variable
 substituteVar :: Map.Map VarName VarName -> VarName -> VarName

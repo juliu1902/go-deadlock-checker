@@ -2,14 +2,14 @@
 func foo (c1 chan int, c2 chan int){
     c1 <- 1
     c2 <- 2
-    close c1
-    close c2
+    close (c1)
+    close (c2)
 }
 func bar (c1 chan int, c2 chan int){
     c2 <- 2
     c1 <- 1
-    close c2
-    close c1
+    close (c2)
+    close (c1)
 }
 
 var a chan int
@@ -22,7 +22,7 @@ bar (a, b)
 func foo (c chan int, b bool){
     if b then { c <- 1 } else { c <- 2 }
     c <- 3
-    close c
+    close (c)
 }
 func bar (c chan int, b bool){
     if b then { 
@@ -32,7 +32,7 @@ func bar (c chan int, b bool){
         c <- 2
         c <- 3 
     }
-    close c
+    close (c)
 }
 
 var c chan int
@@ -44,7 +44,7 @@ bar (c, b)
 func foo (c chan int, b bool){
     c <- 0
     if b then { c <- 1 } else { c <- 2 }
-    close c
+    close (c)
 }
 func bar (c chan int, b bool){
     if b then { 
@@ -54,7 +54,7 @@ func bar (c chan int, b bool){
         c <- 0 
         c <- 2 
     }
-    close c
+    close (c)
 }
 
 var c chan int
@@ -68,8 +68,8 @@ func foo (c1 chan int, c2 chan int, c chan int){
     c <- 1
     c = c2
     c <- 2
-    close c1
-    close c2
+    close (c1)
+    close (c2)
 }
 func bar (x int, y int, c1 chan int, c2 chan int, c chan int){
     <- c1
@@ -105,34 +105,31 @@ p1 (d, number)
 p2 (d)
 ---
 // Paar 6
-func bar (d chan int, number int){
+func p1 (d chan int){
     var c chan int
     c = make (chan int)
 
-    func foo (x chan int, y int){
+    func f (x chan int){
         var z chan int
         z = make (chan int)
 
-        func foo2 (x chan int){
+        func nested_f (x chan int){
             x <- 1
         }
-
         <- x
-        go foo2(z)
+        go nested_f(z)
         <- z
     }
-    number = 2
-    go foo(c, number)
+    go f(c)
     c <- 1
     d <- 2
 }
-func foo (c chan int){
-    <- c
+func p2 (d chan int){
+    <- d
 }
 var d chan int
-var number int 
-bar (d, number)
-foo (d)
+p1 (d)
+p2 (d)
 
 ---
 // (s1 || s2) || s3
