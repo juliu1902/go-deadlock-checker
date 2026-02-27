@@ -57,7 +57,6 @@ data ChanType
 data VarType
   = TInt
   | TBool
-  | TFloat
   | TChan ChanType
   deriving (Show, Eq)
 
@@ -76,7 +75,6 @@ data Expr
   = EVar VarName
   | EBool Bool
   | EInt Integer
-  | EFloat Double
   | EBinOp BinOp Expr Expr
   | ENot Expr
   deriving (Eq)
@@ -116,7 +114,6 @@ instance Show Expr where
       EVar x          -> show x
       EBool x         -> show x
       EInt x          -> show x
-      EFloat x        -> show x
       EBinOp op e1 e2 -> show e1 ++ show op ++ show e2
       ENot x          -> "!" ++ show x
 
@@ -493,7 +490,6 @@ checkTypeOfExpression expectedType expr ctxt =
         Nothing         -> False
     EBool x -> expectedType == TBool
     EInt x -> expectedType == TInt
-    EFloat x -> expectedType == TFloat
     ENot e1 -> expectedType == TBool && checkTypeOfExpression TBool e1 ctxt
     EBinOp op e1 e2 ->
       case op of
@@ -536,8 +532,6 @@ checkTypeOfExpression expectedType expr ctxt =
           if expectedType == TBool
             then checkTypeOfExpression TInt e1 ctxt
                    && checkTypeOfExpression TInt e2 ctxt
-                   || checkTypeOfExpression TFloat e1 ctxt
-                        && checkTypeOfExpression TFloat e2 ctxt
                    || checkTypeOfExpression TBool e1 ctxt
                         && checkTypeOfExpression TBool e2 ctxt
             else False

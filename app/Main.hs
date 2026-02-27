@@ -11,7 +11,6 @@ import           Text.Megaparsec
 import           Equivalence
 import           Duality
 import           Substitution
-import Data.SBV.Tuple (_1)
 
 checkClosed :: Statement -> Either String ()
 checkClosed st =

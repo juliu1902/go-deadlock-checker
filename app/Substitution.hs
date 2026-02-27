@@ -31,7 +31,6 @@ substituteVarsInExpr :: Map.Map VarName VarName -> Expr -> Expr
 substituteVarsInExpr subMap expr = case expr of
   EVar var -> EVar (substituteVar subMap var)
   EInt i -> EInt i
-  EFloat f -> EFloat f
   EBool b -> EBool b
   EBinOp op e1 e2 -> EBinOp op (substituteVarsInExpr subMap e1) (substituteVarsInExpr subMap e2)
   ENot e -> ENot (substituteVarsInExpr subMap e)

@@ -54,11 +54,9 @@ parseAssign = do
 
 -- any number parsed as string
 numberParser :: Parser Expr
-numberParser = try parseFloat <|> parseInt
+numberParser = parseInt
   where
     parseInt   = EInt <$> Lex.lexeme spaceConsumer Lex.decimal
-    parseFloat = EFloat <$> Lex.lexeme spaceConsumer Lex.float
-
 
 boolParser :: Parser Expr
 boolParser = do
